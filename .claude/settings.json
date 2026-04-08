@@ -145,5 +145,8 @@
     "command": "bash ~/.claude/statusline-command.sh"
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high"
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true
+  }
 }
