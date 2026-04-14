@@ -536,6 +536,7 @@ export EDITOR="$EMACSCLIENT"
 # Make less search case insensitive, always use raw input mode (to show
 # colors), don't ring the bell incessantly
 export LESS='-RIq'
+export RIPGREP_CONFIG_PATH=$HOME/.ripgreprc
 export PYTHONSTARTUP=$HOME/.pythonrc.py
 
 alias e="$EMACSCLIENT"
