@@ -493,6 +493,34 @@ Used for `flyspell-generic-check-word-predicate'. Based on
 
 (use-package rust-mode)
 
+;; ===== Swift =====
+
+;;; Locate sourcekit-lsp
+(defun find-sourcekit-lsp ()
+  (or (executable-find "sourcekit-lsp")
+      (and (eq system-type 'darwin)
+           (string-trim (shell-command-to-string "xcrun -f sourcekit-lsp")))
+      "/usr/local/swift/usr/bin/sourcekit-lsp"))
+
+;; Swift editing support
+(use-package swift-mode
+  :ensure t
+  :mode "\\.swift\\'"
+  :interpreter "swift")
+
+;; Used to interface with swift-lsp.
+(use-package lsp-mode
+  :ensure t
+  :commands lsp
+  :hook ((swift-mode . lsp)))
+
+;; sourcekit-lsp support
+(use-package lsp-sourcekit
+  :ensure t
+  :after lsp-mode
+  :custom
+  (lsp-sourcekit-executable (find-sourcekit-lsp) "Find sourcekit-lsp"))
+
 ;; ===== auto-complete-mode ====
 
 (use-package auto-complete
