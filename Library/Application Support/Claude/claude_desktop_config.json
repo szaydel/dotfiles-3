@@ -19,6 +19,7 @@
     "coworkWebSearchEnabled": true,
     "keepAwakeEnabled": true,
     "coworkOnboardingResumeStep": null,
-    "chicagoEnabled": true
+    "chicagoEnabled": true,
+    "floatingAtollActive": true
   }
 }
