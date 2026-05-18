@@ -490,6 +490,10 @@ add_tab_color "$DIR_NDINDEX" "$TAB_SALMON"
 DIR_VERSIONED_HDF5="$HOME/Documents/versioned-hdf5"
 add_tab_color "$DIR_VERSIONED_HDF5" "$TAB_LIGHT_BLUE"
 
+# mercor - Coral
+DIR_MERCOR="$HOME/Documents/mercor"
+add_tab_color "$DIR_MERCOR" "$TAB_CORAL"
+
 set_tab_color () {
     local i search_dir color
 
