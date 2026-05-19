@@ -34,6 +34,12 @@ if [[ -n "${CONDA_DEFAULT_ENV}" && "${CONDA_DEFAULT_ENV}" != "base" ]]; then
     conda_env_part="${CONDA_DEFAULT_ENV}"
 fi
 
+# Get account email from ~/.claude.json
+account_email=""
+if [[ -f "$HOME/.claude.json" ]]; then
+    account_email=$(jq -r '.oauthAccount.emailAddress // empty' "$HOME/.claude.json" 2>/dev/null)
+fi
+
 # Get git status (equivalent to __git_ps1)
 git_status_part=""
 if git rev-parse --git-dir > /dev/null 2>&1; then
@@ -93,7 +99,18 @@ status_line="${status_line}$(printf '\033[1;38;2;255;85;85m')$(printf '\033[0m')
 echo "$status_line"
 
 # Add context window information on a second line (yellow/orange color)
+# followed by the account email (gray color)
+second_line=""
 if [[ $tokens_total -gt 0 ]]; then
     context_info="[${tokens_percentage}% of ${tokens_total_formatted}]"
-    echo "$(printf '\033[1;38;2;255;200;100m')${context_info}$(printf '\033[0m')"
+    second_line="$(printf '\033[1;38;2;255;200;100m')${context_info}$(printf '\033[0m')"
+fi
+if [[ -n "$account_email" ]]; then
+    if [[ -n "$second_line" ]]; then
+        second_line="${second_line} "
+    fi
+    second_line="${second_line}$(printf '\033[1;38;2;128;128;128m')${account_email}$(printf '\033[0m')"
+fi
+if [[ -n "$second_line" ]]; then
+    echo "$second_line"
 fi
