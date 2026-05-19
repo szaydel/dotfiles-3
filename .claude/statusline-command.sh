@@ -10,6 +10,10 @@ current_dir=$(echo "$input" | jq -r '.workspace.current_dir')
 used_percentage=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
 tokens_total=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
 
+# Extract model display name and reasoning effort level
+model_name=$(echo "$input" | jq -r '.model.display_name // empty')
+effort_level=$(echo "$input" | jq -r '.effort.level // empty')
+
 # Format token counts (convert to k format if > 1000)
 format_tokens() {
     local num=$1
@@ -98,12 +102,21 @@ status_line="${status_line}$(printf '\033[1;38;2;255;85;85m')$(printf '\033[0m')
 
 echo "$status_line"
 
-# Add context window information on a second line (yellow/orange color)
-# followed by the account email (gray color)
+# Build second line: context info, model + effort, account email
 second_line=""
 if [[ $tokens_total -gt 0 ]]; then
     context_info="[${tokens_percentage}% of ${tokens_total_formatted}]"
     second_line="$(printf '\033[1;38;2;255;200;100m')${context_info}$(printf '\033[0m')"
+fi
+if [[ -n "$model_name" ]]; then
+    model_part="${model_name}"
+    if [[ -n "$effort_level" ]]; then
+        model_part="${model_part} (${effort_level})"
+    fi
+    if [[ -n "$second_line" ]]; then
+        second_line="${second_line} "
+    fi
+    second_line="${second_line}$(printf '\033[1;38;2;150;200;255m')${model_part}$(printf '\033[0m')"
 fi
 if [[ -n "$account_email" ]]; then
     if [[ -n "$second_line" ]]; then
