@@ -149,6 +149,7 @@
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
+  "theme": "auto",
   "verbose": true,
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true
