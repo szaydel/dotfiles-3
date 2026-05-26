@@ -763,6 +763,9 @@ addtopath "/Users/aaronmeurer/.pixi/bin"
 
 addtopath "/Users/aaronmeurer/.cache/lm-studio/bin"
 
+eval "$(uv generate-shell-completion bash)"
+eval "$(uvx --generate-shell-completion bash)"
+
 # This line needs to stay at the bottom of the file.
 source ~/Documents/git/contrib/completion/git-completion.bash
 # Complete all git subcommands and flags
