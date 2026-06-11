@@ -109,14 +109,38 @@ if [[ $tokens_total -gt 0 ]]; then
     second_line="$(printf '\033[1;38;2;255;200;100m')${context_info}$(printf '\033[0m')"
 fi
 if [[ -n "$model_name" ]]; then
-    model_part="${model_name}"
-    if [[ -n "$effort_level" ]]; then
-        model_part="${model_part} (${effort_level})"
+    # Pick color by model family
+    model_name_lower=$(echo "$model_name" | tr '[:upper:]' '[:lower:]')
+    if [[ "$model_name_lower" == *"fable"* ]]; then
+        model_color=$(printf '\033[1;38;2;200;130;255m')   # purple
+    elif [[ "$model_name_lower" == *"opus"* ]]; then
+        model_color=$(printf '\033[1;38;2;255;185;0m')     # gold
+    elif [[ "$model_name_lower" == *"haiku"* ]]; then
+        model_color=$(printf '\033[1;38;2;100;220;120m')   # green
+    else
+        model_color=$(printf '\033[1;38;2;150;200;255m')   # blue (sonnet / default)
     fi
+
+    # Pick color by effort level
+    effort_color=""
+    if [[ -n "$effort_level" ]]; then
+        effort_level_lower=$(echo "$effort_level" | tr '[:upper:]' '[:lower:]')
+        if [[ "$effort_level_lower" == *"turbo"* || "$effort_level_lower" == *"fast"* ]]; then
+            effort_color=$(printf '\033[1;38;2;255;140;0m')    # orange
+        elif [[ "$effort_level_lower" == *"extend"* || "$effort_level_lower" == *"high"* ]]; then
+            effort_color=$(printf '\033[1;38;2;80;255;80m')    # bright green
+        else
+            effort_color=$(printf '\033[1;38;2;180;180;180m')  # gray
+        fi
+    fi
+
     if [[ -n "$second_line" ]]; then
         second_line="${second_line} "
     fi
-    second_line="${second_line}$(printf '\033[1;38;2;150;200;255m')${model_part}$(printf '\033[0m')"
+    second_line="${second_line}${model_color}${model_name}$(printf '\033[0m')"
+    if [[ -n "$effort_level" ]]; then
+        second_line="${second_line}${effort_color} (${effort_level})$(printf '\033[0m')"
+    fi
 fi
 if [[ -n "$account_email" ]]; then
     if [[ -n "$second_line" ]]; then
