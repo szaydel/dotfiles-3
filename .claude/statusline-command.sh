@@ -125,12 +125,14 @@ if [[ -n "$model_name" ]]; then
     effort_color=""
     if [[ -n "$effort_level" ]]; then
         effort_level_lower=$(echo "$effort_level" | tr '[:upper:]' '[:lower:]')
-        if [[ "$effort_level_lower" == *"turbo"* || "$effort_level_lower" == *"fast"* ]]; then
+        if [[ "$effort_level_lower" == "high" ]]; then
+            effort_color="$model_color"                        # default — match model
+        elif [[ "$effort_level_lower" == *"turbo"* || "$effort_level_lower" == *"fast"* ]]; then
             effort_color=$(printf '\033[1;38;2;255;140;0m')    # orange
         elif [[ "$effort_level_lower" == *"extend"* ]]; then
             effort_color=$(printf '\033[1;38;2;80;255;80m')    # bright green
         else
-            effort_color="$model_color"
+            effort_color=$(printf '\033[1;38;2;255;255;100m')  # yellow (unexpected)
         fi
     fi
 
