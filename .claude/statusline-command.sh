@@ -130,7 +130,7 @@ if [[ -n "$model_name" ]]; then
         elif [[ "$effort_level_lower" == *"extend"* || "$effort_level_lower" == *"high"* ]]; then
             effort_color=$(printf '\033[1;38;2;80;255;80m')    # bright green
         else
-            effort_color=$(printf '\033[1;38;2;180;180;180m')  # gray
+            effort_color="$model_color"
         fi
     fi
 
