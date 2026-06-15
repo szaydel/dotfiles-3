@@ -563,3 +563,5 @@ Isolable
 overcount
 totient
 isolable
+monic
+nonconstant
