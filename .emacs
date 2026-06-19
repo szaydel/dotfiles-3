@@ -1703,16 +1703,38 @@ This command does the reverse of `fill-region'."
 ;; Disable in hexlmode
 (add-hook 'hexl-mode-hook 'turn-off-flyspell)
 
-;; Use aspell with flyspell
-
-;; (setq ispell-list-command "list")
-;; Make aspell faster. Possibilities, from fastest to slowest, are ultra,
-;; fast, normal, bad-spellers (normal is the default). Faster modes have
-;; poorer suggestions.
-;; (setq-default ispell-extra-args "--sug-mode=ultra")
+;; Use hunspell with flyspell
 
 (setq-default ispell-program-name "hunspell")
 (setq ispell-really-hunspell t)
+
+;; Fix contractions (e.g. "isn't") in flyspell / M-$ / C-M-i.
+;;
+;; flyspell and ispell-word grab the word at point using Emacs's own notion
+;; of word characters, which for hunspell is built by
+;; `ispell-parse-hunspell-affix-file' from the dictionary's WORDCHARS line.
+;; The conda en_US.aff has `WORDCHARS 0123456789’`, where the apostrophe is a
+;; *curly* one (U+2019), not the straight ASCII apostrophe (U+0027). So Emacs
+;; treats a straight apostrophe as a word boundary and checks "isn" instead of
+;; "isn't". (M-x ispell works because it pipes whole regions to hunspell, which
+;; tokenizes contractions itself.) Override the dictionary entry so the
+;; otherchars regexp includes both apostrophes.
+;;
+;; The -d argument points at an absolute path so we use the large SCOWL size-95
+;; dictionary installed by gitclones.sh in ~/.local/share/hunspell (~150k words,
+;; vs the ~50k-word standard en_US that conda's hunspell-en ships). The basename
+;; stays "en_US", so hunspell still auto-loads the personal word list
+;; ~/.hunspell_en_US.
+(setq ispell-local-dictionary "en_US")
+(setq ispell-local-dictionary-alist
+      `(("en_US"
+         "[[:alpha:]]"            ; casechars
+         "[^[:alpha:]]"           ; not-casechars
+         "['’]"                   ; otherchars: straight and curly apostrophe
+         t                        ; many-otherchars-p
+         ("-d" ,(expand-file-name "~/.local/share/hunspell/en_US")) ; ispell-args
+         nil                      ; extended-char-mode (unused by hunspell)
+         utf-8)))
 
 ;; ===== Automatically indent with RET =====
 
