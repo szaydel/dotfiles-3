@@ -256,9 +256,12 @@ render_rate_limit() {
 if [[ -n "$five_hour_pct" ]]; then
     rate_line="${rate_line}$(render_rate_limit "5h" "$five_hour_pct" "$five_hour_resets" 300)"
 fi
-if [[ -n "$seven_day_pct" ]]; then
-    if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  "; fi
-    rate_line="${rate_line}$(render_rate_limit "7d" "$seven_day_pct" "$seven_day_resets" 10080)"
+if [[ -n "$seven_day_pct" && -n "$seven_day_resets" ]]; then
+    seven_day_empty_mins=$(project_empty_mins "$seven_day_pct" "$seven_day_resets" 10080)
+    if [[ -n "$seven_day_empty_mins" ]]; then
+        if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
+        rate_line="${rate_line}$(render_rate_limit "7d" "$seven_day_pct" "$seven_day_resets" 10080)"
+    fi
 fi
 if [[ -n "$rate_line" ]]; then
     echo "$rate_line"
