@@ -1,0 +1,160 @@
+# Bash tab completion for `uv`, extending uv's built-in completion so that
+# `uv run <TAB>` also completes:
+#   * the [project.scripts] entries from the nearest pyproject.toml
+#   * executables installed in the project's .venv/bin
+#   * the chosen command's own flags (parsed from its --help)
+#   * file paths for the chosen command's positional arguments
+#
+# This file lives at ~/.local/share/bash-completion/completions/uv so that
+# bash-completion's lazy loader (_completion_loader / __load_completion) sources
+# it on demand the first time `uv` is completed -- this works regardless of
+# shell startup order, which is more robust than registering the compspec in
+# .profile (where a later-loaded completion framework could clobber it). It is
+# also sourced directly from .profile so it's available immediately.
+
+# Load uv's own completion (defines _uv and a base `complete ... uv`) if it
+# hasn't been loaded yet.
+if ! declare -F _uv > /dev/null 2>&1; then
+    eval "$(uv generate-shell-completion bash 2> /dev/null)"
+fi
+
+if declare -F _uv > /dev/null 2>&1; then
+    # Print the candidate command names for `uv run` in the current project:
+    # the [project.scripts] keys from the nearest pyproject.toml plus the
+    # executables in that project's .venv/bin.
+    _uv_run_script_names () {
+        # Walk up from $PWD to find the project root (nearest pyproject.toml),
+        # mirroring how `uv run` discovers the project.
+        local dir="$PWD" root=""
+        while [[ "$dir" != "/" && -n "$dir" ]]; do
+            if [[ -f "$dir/pyproject.toml" ]]; then
+                root="$dir"
+                break
+            fi
+            dir="$(dirname "$dir")"
+        done
+        [[ -z "$root" ]] && return
+
+        {
+            # [project.scripts] entries: the key before the first '=' in the
+            # [project.scripts] table.
+            awk '
+                /^\[project\.scripts\]/ { in_s=1; next }
+                /^\[/                   { in_s=0 }
+                in_s && /=/ {
+                    split($0, a, "=")
+                    gsub(/[[:space:]]/, "", a[1])
+                    if (a[1] != "" && a[1] !~ /^#/) print a[1]
+                }
+            ' "$root/pyproject.toml"
+
+            # Executables installed in the project venv (uv run pytest, ruff, ...).
+            if [[ -d "$root/.venv/bin" ]]; then
+                local f
+                for f in "$root/.venv/bin"/*; do
+                    [[ -f "$f" && -x "$f" ]] || continue
+                    case "${f##*/}" in
+                        activate*|deactivate*|*.py) ;;  # skip venv activation scripts
+                        *) basename "$f" ;;
+                    esac
+                done
+            fi
+        } | sort -u
+    }
+
+    # Cache of discovered flags, keyed by command name, so we only shell out to
+    # `--help` once per command per shell session.
+    declare -A _UV_RUN_FLAG_CACHE
+
+    # Print the flags a chosen `uv run` command accepts, discovered by parsing
+    # its `--help` output (works for argparse, typer/click, clap, ...).
+    _uv_run_command_flags () {
+        local cmd="$1"
+        [[ -z "$cmd" ]] && return
+        if [[ -n "${_UV_RUN_FLAG_CACHE[$cmd]+x}" ]]; then
+            printf '%s' "${_UV_RUN_FLAG_CACHE[$cmd]}"
+            return
+        fi
+        # Guard against a command whose --help hangs, if a timeout tool exists.
+        local to=""
+        if command -v timeout > /dev/null 2>&1; then
+            to="timeout 10"
+        elif command -v gtimeout > /dev/null 2>&1; then
+            to="gtimeout 10"
+        fi
+        # Use `command grep --color=never` so a user `grep` alias that forces
+        # color (common, and expanded here because .profile sets
+        # expand_aliases) doesn't inject ANSI escapes into the flag names.
+        local flags
+        flags="$($to uv run --quiet "$cmd" --help 2>/dev/null \
+            | command grep --color=never -oE -- '--[A-Za-z0-9][A-Za-z0-9-]*|(^|[[:space:],(])-[A-Za-z]([[:space:],]|$)' \
+            | command grep --color=never -oE -- '-{1,2}[A-Za-z][A-Za-z0-9-]*' \
+            | sort -u | tr '\n' ' ')"
+        # Only cache successful lookups so a transient failure (e.g. the first
+        # call triggering an environment sync) doesn't stick for the session.
+        [[ -n "$flags" ]] && _UV_RUN_FLAG_CACHE[$cmd]="$flags"
+        printf '%s' "$flags"
+    }
+
+    _uv_run_complete () {
+        # Let uv's own completion run first so subcommands/flags still work.
+        _uv "$@"
+
+        local cur="${COMP_WORDS[COMP_CWORD]}"
+
+        # Find the `run` subcommand before the cursor.
+        local i run_idx=-1
+        for (( i=1; i < COMP_CWORD; i++ )); do
+            if [[ "${COMP_WORDS[i]}" == "run" ]]; then
+                run_idx=$i
+                break
+            fi
+        done
+        [[ $run_idx -lt 0 ]] && return
+
+        # Decide whether a command name has already been chosen between `run`
+        # and the cursor. Skip flags and the values of the common value-taking
+        # options of `uv run`.
+        local j w chosen=0 cmd_idx=-1
+        for (( j=run_idx+1; j < COMP_CWORD; j++ )); do
+            w="${COMP_WORDS[j]}"
+            case "$w" in
+                -p|--python|--with|--with-requirements|--directory|--package|--project|--index|--extra|--group)
+                    (( j++ ))  # skip this option's value
+                    ;;
+                -*) ;;          # other flag, ignore
+                *)  chosen=1; cmd_idx=$j; break ;;
+            esac
+        done
+
+        if [[ $chosen -eq 1 ]]; then
+            # The command has been chosen; remaining words are its arguments,
+            # which uv passes through to the program. uv's completion only
+            # offers `uv run`'s own flags here, which don't apply.
+            if [[ "$cur" == -* ]]; then
+                # Completing a flag: offer the program's own flags, parsed from
+                # its --help output.
+                local flags
+                flags="$(_uv_run_command_flags "${COMP_WORDS[cmd_idx]}")"
+                COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
+            else
+                # Completing a positional argument: clear uv's flag suggestions
+                # and let bash fall back to default path completion (enabled via
+                # the -o bashdefault -o default options on the compspec).
+                COMPREPLY=()
+            fi
+            return
+        fi
+
+        # Completing the command argument itself: offer the project's run
+        # targets (unless the user is typing a flag for `uv run`).
+        [[ "$cur" == -* ]] && return
+        local names matches
+        names="$(_uv_run_script_names)"
+        [[ -z "$names" ]] && return
+        matches="$(compgen -W "$names" -- "$cur")"
+        [[ -n "$matches" ]] && COMPREPLY+=( $matches )
+    }
+
+    complete -F _uv_run_complete -o nosort -o bashdefault -o default uv
+fi

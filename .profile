@@ -763,8 +763,14 @@ addtopath "/Users/aaronmeurer/.pixi/bin"
 
 addtopath "/Users/aaronmeurer/.cache/lm-studio/bin"
 
-eval "$(uv generate-shell-completion bash)"
 eval "$(uvx --generate-shell-completion bash)"
+
+# uv tab completion, including `uv run <script/flag/path>` completion. The logic
+# lives in a standalone file so bash-completion's lazy loader can also source it
+# on demand (this is more robust than relying on the compspec registered here
+# surviving, in case another completion framework loads later and clobbers it).
+# See .local/share/bash-completion/completions/uv (symlinked by linkfiles.py).
+source "$HOME/.local/share/bash-completion/completions/uv"
 
 # This line needs to stay at the bottom of the file.
 source ~/Documents/git/contrib/completion/git-completion.bash
