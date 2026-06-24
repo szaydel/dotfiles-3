@@ -30,6 +30,21 @@ format_tokens() {
     fi
 }
 
+# Format a duration in minutes as compact human string
+format_mins() {
+    local total_mins=$1
+    local d=$(( total_mins / 1440 ))
+    local h=$(( (total_mins % 1440) / 60 ))
+    local m=$(( total_mins % 60 ))
+    if [[ $d -gt 0 ]]; then
+        echo "${d}d ${h}h"
+    elif [[ $h -gt 0 ]]; then
+        echo "${h}h ${m}m"
+    else
+        echo "${m}m"
+    fi
+}
+
 # Format seconds-until-reset as compact human duration
 format_reset() {
     local resets_at=$1
@@ -40,15 +55,28 @@ format_reset() {
         echo "now"
         return
     fi
-    local d=$(( secs_left / 86400 ))
-    local h=$(( (secs_left % 86400) / 3600 ))
-    local m=$(( (secs_left % 3600) / 60 ))
-    if [[ $d -gt 0 ]]; then
-        echo "${d}d ${h}h"
-    elif [[ $h -gt 0 ]]; then
-        echo "${h}h ${m}m"
-    else
-        echo "${m}m"
+    format_mins $(( secs_left / 60 ))
+}
+
+# Compute projected minutes until budget empty at current burn rate.
+# Prints an integer, or empty string if projection isn't meaningful.
+# Args: used_pct  resets_at  window_mins
+project_empty_mins() {
+    local used_pct=$1
+    local resets_at=$2
+    local window_mins=$3
+    local now
+    now=$(date +%s)
+    local mins_until_reset=$(( (resets_at - now) / 60 ))
+    local mins_elapsed=$(( window_mins - mins_until_reset ))
+    # Need meaningful elapsed time and at least some usage
+    [[ $mins_elapsed -le 0 ]] && return
+    local out_mins
+    out_mins=$(echo "scale=0; r = (100 - $used_pct) * $mins_elapsed / $used_pct; if (r < 0) { 0 } else { r / 1 }" | bc -l 2>/dev/null) || return
+    [[ -z "$out_mins" || "$out_mins" == "0" ]] && return
+    # Only meaningful if it runs out before reset
+    if [[ $out_mins -lt $mins_until_reset ]]; then
+        echo "$out_mins"
     fi
 }
 
@@ -198,26 +226,39 @@ fi
 
 # Third line: rate limits (5-hour and 7-day subscription usage limits)
 dim=$(printf '\033[38;2;160;160;160m')
-reset=$(printf '\033[0m')
+danger_col=$(printf '\033[1;38;2;255;85;85m')
+ansi_reset=$(printf '\033[0m')
 rate_line=""
-if [[ -n "$five_hour_pct" ]]; then
-    pct_left=$(printf '%.0f' "$(echo "100 - $five_hour_pct" | bc)")
+
+render_rate_limit() {
+    local label=$1        # "5h" or "7d"
+    local used_pct=$2
+    local resets_at=$3
+    local window_mins=$4
+    local pct_left
+    pct_left=$(printf '%.0f' "$(echo "100 - $used_pct" | bc)")
+    local col
     col=$(rate_limit_color "$pct_left")
-    reset_str=""
-    if [[ -n "$five_hour_resets" ]]; then
-        reset_str="${dim} → $(format_reset "$five_hour_resets")${reset}"
+
+    local suffix=""
+    if [[ -n "$resets_at" ]]; then
+        local empty_mins
+        empty_mins=$(project_empty_mins "$used_pct" "$resets_at" "$window_mins")
+        if [[ -n "$empty_mins" ]]; then
+            suffix="${danger_col} empty ~$(format_mins "$empty_mins")${ansi_reset}${dim} | reset $(format_reset "$resets_at")${ansi_reset}"
+        else
+            suffix="${dim} → $(format_reset "$resets_at")${ansi_reset}"
+        fi
     fi
-    rate_line="${rate_line}${dim}5h ${reset}${col}${pct_left}%${reset}${reset_str}"
+    printf '%s' "${dim}${label} ${ansi_reset}${col}${pct_left}%${ansi_reset}${suffix}"
+}
+
+if [[ -n "$five_hour_pct" ]]; then
+    rate_line="${rate_line}$(render_rate_limit "5h" "$five_hour_pct" "$five_hour_resets" 300)"
 fi
 if [[ -n "$seven_day_pct" ]]; then
-    pct_left=$(printf '%.0f' "$(echo "100 - $seven_day_pct" | bc)")
-    col=$(rate_limit_color "$pct_left")
-    reset_str=""
-    if [[ -n "$seven_day_resets" ]]; then
-        reset_str="${dim} → $(format_reset "$seven_day_resets")${reset}"
-    fi
     if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  "; fi
-    rate_line="${rate_line}${dim}7d ${reset}${col}${pct_left}%${reset}${reset_str}"
+    rate_line="${rate_line}$(render_rate_limit "7d" "$seven_day_pct" "$seven_day_resets" 10080)"
 fi
 if [[ -n "$rate_line" ]]; then
     echo "$rate_line"
