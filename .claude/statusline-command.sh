@@ -14,6 +14,12 @@ tokens_total=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
 model_name=$(echo "$input" | jq -r '.model.display_name // empty')
 effort_level=$(echo "$input" | jq -r '.effort.level // empty')
 
+# Extract rate limits (Claude.ai subscription usage limits)
+five_hour_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+five_hour_resets=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+seven_day_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+seven_day_resets=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+
 # Format token counts (convert to k format if > 1000)
 format_tokens() {
     local num=$1
@@ -21,6 +27,41 @@ format_tokens() {
         echo "$((num / 1000))k"
     else
         echo "$num"
+    fi
+}
+
+# Format seconds-until-reset as compact human duration
+format_reset() {
+    local resets_at=$1
+    local now
+    now=$(date +%s)
+    local secs_left=$(( resets_at - now ))
+    if [[ $secs_left -le 0 ]]; then
+        echo "now"
+        return
+    fi
+    local d=$(( secs_left / 86400 ))
+    local h=$(( (secs_left % 86400) / 3600 ))
+    local m=$(( (secs_left % 3600) / 60 ))
+    if [[ $d -gt 0 ]]; then
+        echo "${d}d ${h}h"
+    elif [[ $h -gt 0 ]]; then
+        echo "${h}h ${m}m"
+    else
+        echo "${m}m"
+    fi
+}
+
+# Pick ANSI color based on percentage remaining (inverted: high remaining = green)
+rate_limit_color() {
+    local pct_left=$1
+    pct_left=$(printf '%.0f' "$pct_left")
+    if [[ $pct_left -le 10 ]]; then
+        printf '\033[1;38;2;255;85;85m'    # red: almost out
+    elif [[ $pct_left -le 30 ]]; then
+        printf '\033[1;38;2;255;185;0m'    # gold: getting low
+    else
+        printf '\033[1;38;2;100;220;120m'  # green: plenty left
     fi
 }
 
@@ -102,7 +143,7 @@ status_line="${status_line}$(printf '\033[1;38;2;255;85;85m')$(printf '\033[0m')
 
 echo "$status_line"
 
-# Build second line: context info, model + effort, account email
+# Build second line: context info, model + effort, account email, rate limits
 second_line=""
 if [[ $tokens_total -gt 0 ]]; then
     context_info="[${tokens_percentage}% of ${tokens_total_formatted}]"
@@ -150,6 +191,34 @@ if [[ -n "$account_email" ]]; then
     fi
     second_line="${second_line}$(printf '\033[1;38;2;128;128;128m')${account_email}$(printf '\033[0m')"
 fi
+
 if [[ -n "$second_line" ]]; then
     echo "$second_line"
+fi
+
+# Third line: rate limits (5-hour and 7-day subscription usage limits)
+dim=$(printf '\033[38;2;160;160;160m')
+reset=$(printf '\033[0m')
+rate_line=""
+if [[ -n "$five_hour_pct" ]]; then
+    pct_left=$(printf '%.0f' "$(echo "100 - $five_hour_pct" | bc)")
+    col=$(rate_limit_color "$pct_left")
+    reset_str=""
+    if [[ -n "$five_hour_resets" ]]; then
+        reset_str="${dim} → $(format_reset "$five_hour_resets")${reset}"
+    fi
+    rate_line="${rate_line}${dim}5h ${reset}${col}${pct_left}%${reset}${reset_str}"
+fi
+if [[ -n "$seven_day_pct" ]]; then
+    pct_left=$(printf '%.0f' "$(echo "100 - $seven_day_pct" | bc)")
+    col=$(rate_limit_color "$pct_left")
+    reset_str=""
+    if [[ -n "$seven_day_resets" ]]; then
+        reset_str="${dim} → $(format_reset "$seven_day_resets")${reset}"
+    fi
+    if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  "; fi
+    rate_line="${rate_line}${dim}7d ${reset}${col}${pct_left}%${reset}${reset_str}"
+fi
+if [[ -n "$rate_line" ]]; then
+    echo "$rate_line"
 fi
