@@ -19,7 +19,10 @@
       "Bash(pip index:*)"
     ],
     "deny": [],
-    "ask": [],
+    "ask": [
+      "Bash(/Users/aaronmeurer/.claude/bin/cc-run:*)",
+      "Bash(cc-run:*)"
+    ],
     "defaultMode": "default"
   },
   "model": "opus",
@@ -31,6 +34,14 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
       }
@@ -45,6 +56,14 @@
             "timeout": 86400
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -54,6 +73,14 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
       }
@@ -87,6 +114,14 @@
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -95,6 +130,14 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
       }
@@ -107,6 +150,14 @@
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -115,6 +166,24 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
       }
@@ -137,6 +206,14 @@
             "command": "python3 ~/.claude/hooks/claude-island-state.py"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
       }
     ]
   },
@@ -145,12 +222,20 @@
     "command": "bash ~/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "swift-lsp@claude-plugins-official": true
+    "swift-lsp@claude-plugins-official": true,
+    "clangd-lsp@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
+  "advisorModel": "opus",
+  "tui": "default",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
   "theme": "auto",
   "verbose": true,
   "remoteControlAtStartup": true,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "voiceEnabled": true
 }

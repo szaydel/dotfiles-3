@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# cc-run — escape-hatch command runner for Claude Code.
+#
+# Why this exists:
+#   This machine normally runs Claude Code in "auto" permission mode, where a
+#   model classifies each Bash command for safety. When that classifier is
+#   unavailable, commands are hard-blocked with:
+#       "auto mode cannot determine the safety of Bash right now"
+#   and nothing can run until auto mode is turned off by hand.
+#
+#   This command is covered by an explicit `permissions.ask` rule in
+#   ~/.claude/settings.json. Explicit allow/ask/deny rules are evaluated BEFORE
+#   the auto-mode classifier, so invoking a command THROUGH cc-run falls back to
+#   an ordinary interactive permission prompt (it pings you) instead of being
+#   blocked — even while the classifier is down.
+#
+# Usage (the assistant invokes it with the full command as one quoted argument):
+#       /Users/<you>/.claude/bin/cc-run 'cd /path && some | pipeline'
+#   The argument is run with `bash -c`, so pipes, &&, redirects, and quoting all
+#   behave exactly as if you had typed the inner command yourself.
+set -o pipefail
+if [ "$#" -eq 0 ]; then
+  echo "usage: cc-run '<command>'" >&2
+  exit 2
+fi
+exec bash -c "$*"
