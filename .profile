@@ -257,6 +257,8 @@ alias sl=ls
 # dc is a real command, but it's just some useless calculator
 alias dc=cd
 
+alias cdb="cd /Users/aaronmeurer/Documents/mercor/blackbox"
+
 # List processes running under Rosetta. https://apple.stackexchange.com/a/431166/6446
 alias rosettaprocesses="ps -p `fuser /usr/libexec/rosetta/runtime 2> /dev/null`"
 
