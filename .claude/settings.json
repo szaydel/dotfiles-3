@@ -176,6 +176,14 @@
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/cc-session-name.py"
+          }
+        ]
       }
     ],
     "StopFailure": [
