@@ -158,6 +158,14 @@
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/cc-session-name.py"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -181,7 +189,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/cc-session-name.py"
+            "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
           }
         ]
       }
@@ -220,6 +228,14 @@
           {
             "type": "command",
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/cc-session-name.py"
           }
         ]
       }
