@@ -23,7 +23,7 @@
       "Bash(/Users/aaronmeurer/.claude/bin/cc-run:*)",
       "Bash(cc-run:*)"
     ],
-    "defaultMode": "default"
+    "defaultMode": "auto"
   },
   "model": "opus",
   "hooks": {
