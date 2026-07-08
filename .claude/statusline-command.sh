@@ -10,9 +10,18 @@ current_dir=$(echo "$input" | jq -r '.workspace.current_dir')
 used_percentage=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
 tokens_total=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
 
-# Extract model display name and reasoning effort level
+# Extract model display name, id, and reasoning effort level
 model_name=$(echo "$input" | jq -r '.model.display_name // empty')
+model_id=$(echo "$input" | jq -r '.model.id // empty')
 effort_level=$(echo "$input" | jq -r '.effort.level // empty')
+
+# Detect whether Fable is the active model. Fable draws from a separate
+# per-model weekly usage bucket (not exposed in the statusline JSON's
+# rate_limits) — see the Fable rate-limit block below.
+model_is_fable=""
+if [[ "$(echo "$model_name" | tr '[:upper:]' '[:lower:]')" == *"fable"* || "$model_id" == *"fable"* ]]; then
+    model_is_fable="1"
+fi
 
 # Extract rate limits (Claude.ai subscription usage limits)
 five_hour_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
@@ -253,6 +262,23 @@ render_rate_limit() {
     printf '%s' "${dim}${label} ${ansi_reset}${col}${pct_left}%${ansi_reset}${suffix}"
 }
 
+# Render Fable's per-model weekly usage the same way as 5h/7d, but sourced from
+# claude-swap (which reads /api/oauth/usage) since the statusline JSON does not
+# carry per-model buckets. countdown is the pre-formatted reset string.
+render_fable_limit() {
+    local used_pct=$1
+    local countdown=$2
+    local pct_left
+    pct_left=$(printf '%.0f' "$(echo "100 - $used_pct" | bc)")
+    local col
+    col=$(rate_limit_color "$pct_left")
+    local suffix=""
+    if [[ -n "$countdown" ]]; then
+        suffix="${dim} → ${countdown}${ansi_reset}"
+    fi
+    printf '%s' "${dim}Fable ${ansi_reset}${col}${pct_left}%${ansi_reset}${suffix}"
+}
+
 if [[ -n "$five_hour_pct" ]]; then
     rate_line="${rate_line}$(render_rate_limit "5h" "$five_hour_pct" "$five_hour_resets" 300)"
 fi
@@ -261,6 +287,31 @@ if [[ -n "$seven_day_pct" && -n "$seven_day_resets" ]]; then
     if [[ -n "$seven_day_empty_mins" ]]; then
         if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
         rate_line="${rate_line}$(render_rate_limit "7d" "$seven_day_pct" "$seven_day_resets" 10080)"
+    fi
+fi
+# Fable per-model weekly usage — only when Fable is the active model. Read from
+# claude-swap's --json output (the active account's "Fable" scoped entry).
+# Omitted silently on any failure so the rate line always renders.
+if [[ -n "$model_is_fable" ]]; then
+    swap_bin="$HOME/.local/bin/claude-swap"
+    [[ -x "$swap_bin" ]] || swap_bin=$(command -v claude-swap 2>/dev/null)
+    if [[ -n "$swap_bin" ]]; then
+        swap_timeout=""
+        if command -v timeout >/dev/null 2>&1; then
+            swap_timeout="timeout 4"
+        elif command -v gtimeout >/dev/null 2>&1; then
+            swap_timeout="gtimeout 4"
+        fi
+        swap_json=$($swap_timeout "$swap_bin" --list --json 2>/dev/null)
+        if [[ -n "$swap_json" ]]; then
+            fable_scoped='.accounts[]? | select(.active) | .usage.scoped[]? | select(.name=="Fable")'
+            fable_pct=$(echo "$swap_json" | jq -r "$fable_scoped | .pct // empty" 2>/dev/null | head -1)
+            fable_reset=$(echo "$swap_json" | jq -r "$fable_scoped | .countdown // empty" 2>/dev/null | head -1)
+            if [[ -n "$fable_pct" ]]; then
+                if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
+                rate_line="${rate_line}$(render_fable_limit "$fable_pct" "$fable_reset")"
+            fi
+        fi
     fi
 fi
 if [[ -n "$rate_line" ]]; then
