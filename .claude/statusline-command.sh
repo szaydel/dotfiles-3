@@ -178,6 +178,11 @@ fi
 # Add prompt symbol (red color) - removed trailing $ as per instructions
 status_line="${status_line}$(printf '\033[1;38;2;255;85;85m')$(printf '\033[0m')"
 
+# Add wall clock (yellow). Kept current by statusLine.refreshInterval; a
+# backgrounded tab replays a frozen line via statusline-freeze.sh so the
+# ticking does not trip iTerm2's tab activity indicator.
+status_line="${status_line}  $(printf '\033[33m')⏱ $(date '+%-I:%M %p')$(printf '\033[0m')"
+
 echo "$status_line"
 
 # Build second line: context info, model + effort, account email, rate limits

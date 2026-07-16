@@ -243,7 +243,8 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
+    "command": "bash ~/.claude/statusline-freeze.sh bash ~/.claude/statusline-command.sh",
+    "refreshInterval": 5
   },
   "enabledPlugins": {
     "swift-lsp@claude-plugins-official": true,
