@@ -1969,16 +1969,6 @@
                         ]
                     },
                     {
-                        "description": "F12 to Forward Delete",
-                        "manipulators": [
-                            {
-                                "from": { "key_code": "f12" },
-                                "to": [{ "key_code": "delete_forward" }],
-                                "type": "basic"
-                            }
-                        ]
-                    },
-                    {
                         "description": "Fn modifications for Borderlands 2",
                         "manipulators": [
                             {
