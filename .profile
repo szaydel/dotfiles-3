@@ -634,8 +634,7 @@ rebuild-numpy () (
     python -c 'import numpy; print("Built NumPy", numpy.__version__)'
 )
 
-# Don't use the git version of emacs
-addtopath "$HOME/miniconda3/envs/emacs/bin"
+# Emacs comes from Homebrew (emacs-plus); brew shellenv below puts it on PATH
 
 # Homebrew
 if [ -n "$MAC" ]; then

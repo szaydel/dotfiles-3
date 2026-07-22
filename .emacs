@@ -596,7 +596,9 @@ Used for `flyspell-generic-check-word-predicate'. Based on
 
 (use-package copilot
   :straight (:host github :repo "zerolfx/copilot.el" :files ("dist" "*.el"))
-  :custom (copilot-node-executable "~/anaconda/envs/emacs/bin/node" "Set node executable.")
+  ;; node comes from brew (macOS) or apt (Linux); fall back to the brew path
+  ;; for GUI Emacs, which may not inherit the shell's PATH.
+  :custom (copilot-node-executable (or (executable-find "node") "/opt/homebrew/bin/node") "Set node executable.")
   :ensure t)
 
 (add-hook 'prog-mode-hook 'copilot-mode)
