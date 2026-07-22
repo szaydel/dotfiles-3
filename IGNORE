@@ -9,6 +9,7 @@ Library/Preferences
 LICENSE
 README.md
 gitclones.sh
+Brewfile
 fink-packages
 xonsh-blockers.md
 Linux-testing/*
