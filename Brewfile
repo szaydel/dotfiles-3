@@ -92,3 +92,4 @@ cask "karabiner-elements"  # keyboard customizer (.config/karabiner depends on i
 cask "font-hack-nerd-font"
 cask "codex"               # OpenAI coding agent
 cask "codexbar"            # menu-bar usage monitor for Codex/Claude
+cask "macdown-3000"        # Markdown editor; default handler for .md/.markdown
