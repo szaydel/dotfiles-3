@@ -294,10 +294,14 @@ if [[ -n "$seven_day_pct" && -n "$seven_day_resets" ]]; then
         rate_line="${rate_line}$(render_rate_limit "7d" "$seven_day_pct" "$seven_day_resets" 10080)"
     fi
 fi
-# Fable per-model weekly usage — only when Fable is the active model. Read from
-# claude-swap's --json output (the active account's "Fable" scoped entry).
-# Omitted silently on any failure so the rate line always renders.
-if [[ -n "$model_is_fable" ]]; then
+# Fetch claude-swap's account/usage JSON once, only when something below needs
+# it: the Fable per-model bucket (Fable is the active model) or the
+# alternate-account note (the auto-swap fallback account is active). Omitted
+# silently on any failure so the rate line always renders.
+alt_primary_email="asmeurer@gmail.com"      # auto-swap hook's primary account
+alt_fallback_email="aaronmeurer@gmail.com"  # auto-swap hook's fallback account
+swap_json=""
+if [[ -n "$model_is_fable" || "$account_email" == "$alt_fallback_email" ]]; then
     swap_bin="$HOME/.local/bin/claude-swap"
     [[ -x "$swap_bin" ]] || swap_bin=$(command -v claude-swap 2>/dev/null)
     if [[ -n "$swap_bin" ]]; then
@@ -308,17 +312,46 @@ if [[ -n "$model_is_fable" ]]; then
             swap_timeout="gtimeout 4"
         fi
         swap_json=$($swap_timeout "$swap_bin" --list --json 2>/dev/null)
-        if [[ -n "$swap_json" ]]; then
-            fable_scoped='.accounts[]? | select(.active) | .usage.scoped[]? | select(.name=="Fable")'
-            fable_pct=$(echo "$swap_json" | jq -r "$fable_scoped | .pct // empty" 2>/dev/null | head -1)
-            fable_reset=$(echo "$swap_json" | jq -r "$fable_scoped | .countdown // empty" 2>/dev/null | head -1)
-            if [[ -n "$fable_pct" ]]; then
-                if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
-                rate_line="${rate_line}$(render_fable_limit "$fable_pct" "$fable_reset")"
-            fi
+    fi
+fi
+
+# Fable per-model weekly usage — only when Fable is the active model. Read from
+# claude-swap's --json output (the active account's "Fable" scoped entry).
+if [[ -n "$model_is_fable" && -n "$swap_json" ]]; then
+    fable_scoped='.accounts[]? | select(.active) | .usage.scoped[]? | select(.name=="Fable")'
+    fable_pct=$(echo "$swap_json" | jq -r "$fable_scoped | .pct // empty" 2>/dev/null | head -1)
+    fable_reset=$(echo "$swap_json" | jq -r "$fable_scoped | .countdown // empty" 2>/dev/null | head -1)
+    if [[ -n "$fable_pct" ]]; then
+        if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
+        rate_line="${rate_line}$(render_fable_limit "$fable_pct" "$fable_reset")"
+    fi
+fi
+
+# Alternate-account note: while on the auto-swap fallback account, show when
+# the primary has 5-hour headroom again — the cue that a switch back is
+# possible. Mirrors auto-swap-on-low-usage.py's gating: primary usageStatus
+# "ok", 5-hour window meaningfully recovered (>=10% free), weekly cap not
+# walled (>5% free; missing weekly data counts as ok).
+if [[ "$account_email" == "$alt_fallback_email" && -n "$swap_json" ]]; then
+    alt_primary='.accounts[]? | select(.email=="'"$alt_primary_email"'")'
+    alt_status=$(echo "$swap_json" | jq -r "$alt_primary | .usageStatus // empty" 2>/dev/null | head -1)
+    alt_5h_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.fiveHour.pct // empty" 2>/dev/null | head -1)
+    alt_7d_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.sevenDay.pct // empty" 2>/dev/null | head -1)
+    if [[ "$alt_status" == "ok" && -n "$alt_5h_pct" ]]; then
+        alt_5h_free=$(printf '%.0f' "$(echo "100 - $alt_5h_pct" | bc)")
+        alt_weekly_ok=1
+        if [[ -n "$alt_7d_pct" ]]; then
+            alt_7d_free=$(printf '%.0f' "$(echo "100 - $alt_7d_pct" | bc)")
+            [[ $alt_7d_free -le 5 ]] && alt_weekly_ok=""
+        fi
+        if [[ -n "$alt_weekly_ok" && $alt_5h_free -ge 10 ]]; then
+            alt_green=$(printf '\033[1;38;2;100;220;120m')
+            if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
+            rate_line="${rate_line}${alt_green}↩ ${alt_primary_email%%@*} ${alt_5h_free}% free${ansi_reset}"
         fi
     fi
 fi
+
 if [[ -n "$rate_line" ]]; then
     echo "$rate_line"
 fi
