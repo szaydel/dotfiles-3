@@ -45,6 +45,9 @@ POLL_INTERVAL="${BT_KEEPALIVE_POLL:-2}"
 # Raise this if the baseline test fails to reproduce the clipping.
 IDLE_WAIT="${BT_KEEPALIVE_IDLE_WAIT:-45}"
 
+# Sound the test's notifications play. Must be a name from Sound settings.
+NOTIF_SOUND="${BT_KEEPALIVE_NOTIF_SOUND:-Funk}"
+
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/bt-keepalive"
 
 # --- dependencies ----------------------------------------------------------
@@ -142,15 +145,19 @@ run_one_test() {
     echo "staying quiet for ${IDLE_WAIT}s to let the link go idle..."
     sleep "$IDLE_WAIT"
 
-    # Deliberately the system alert (beep), NOT afplay. afplay spawns a fresh
-    # process that opens the audio device seconds before any samples flow, so
-    # the link is awake by the time the sound starts -- it cannot reproduce the
-    # clipping. The alert path fires immediately on an idle device, which is
-    # what notification sounds (e.g. iTerm2's) actually use.
-    echo "playing alert 3 times -- listen to the START of the first one"
+    # Deliberately a Notification Center sound. The other two obvious triggers
+    # do NOT reproduce the clipping, because each wakes the link before any
+    # samples flow:
+    #   afplay  spawns a fresh process that opens the device ~2.8s early
+    #   beep    blocks ~0.36s in a synchronous alert call
+    # A notification hands off to usernoted (a long-running daemon) and returns
+    # in ~0.12s; usernoted fires the sound instantly on an idle device with no
+    # pre-roll. That is the path iTerm2 notifications use.
+    echo "posting notification 3 times -- listen to the START of the first one"
     for i in 1 2 3; do
-        echo "  -> alert $i"
-        osascript -e 'beep' >/dev/null 2>&1
+        echo "  -> notification $i"
+        osascript -e "display notification \"test $i\" with title \"bt-keepalive\" sound name \"$NOTIF_SOUND\"" \
+            >/dev/null 2>&1
         [ "$i" -lt 3 ] && sleep 6
     done
 
@@ -160,6 +167,15 @@ run_one_test() {
 
 run_tests() {
     local tiers
+
+    # Focus/DND silences notifications entirely, which looks exactly like a
+    # tier that fixed the problem. There is no reliable way to read the live
+    # Focus state (Assertions.json keeps schedule-expired records that read as
+    # active), so just say so and let the ear be the judge -- an inaudible
+    # notification is obvious.
+    echo "NOTE: turn off Focus/Do Not Disturb first -- it suppresses"
+    echo "notification sounds, which would make every tier look like a fix."
+    echo
 
     if [ $# -gt 0 ]; then
         tiers="$*"
