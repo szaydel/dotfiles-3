@@ -33,15 +33,43 @@ from __future__ import print_function
 import sys
 import glob
 import argparse
+from itertools import chain
+from shutil import copy2
 
 from os import walk, symlink, makedirs
 from os.path import (join, relpath, abspath, exists, lexists, expanduser,
-                     split, islink)
+                     split, islink, isfile)
+
 
 def fullpath(path):
     return abspath(expanduser(path))
 
-from itertools import chain
+
+COPY_FILES = [
+    ".config/karabiner/karabiner.json",
+]
+
+
+def copy_file(source, destination, dry_run=False):
+    if not isfile(fullpath(source)):
+        return
+
+    if not lexists(fullpath(destination)):
+        if dry_run:
+            print("Would copy:", end=' ')
+        else:
+            print("Copying:", end=' ')
+        print(fullpath(source), "to", fullpath(destination))
+
+        if not dry_run:
+            dir = split(fullpath(destination))[0]
+            if not exists(dir):
+                makedirs(dir, exist_ok=True)
+            copy2(fullpath(source), fullpath(destination))
+    elif islink(fullpath(destination)):
+        print("Warning:", fullpath(destination),
+            "already exists and is a symbolic link", file=sys.stderr)
+
 
 def main():
     parser = argparse.ArgumentParser(description="""Link the dotfiles to where
@@ -70,6 +98,10 @@ def main():
         print("No ignore file found")
 
     ignore.append(abspath(__file__))
+
+    for file in COPY_FILES:
+        copy_file(join(args.source, file), join(args.destination, file),
+            args.dry_run)
 
     for dirpath, dirnames, filenames in walk(args.source):
         dest_head = join(args.destination, relpath(dirpath, start=args.source))
