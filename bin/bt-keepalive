@@ -252,12 +252,17 @@ prepare_test_notification_output() {
 
     if [ "$current" != "$TARGET_DEVICE" ]; then
         echo "temporarily routing system alert output from $current to $TARGET_DEVICE"
-        if ! "$SYSTEM_ALERT_SWITCH" -t system -s "$TARGET_DEVICE"; then
-            echo "failed to set system alert output to $TARGET_DEVICE" >&2
-            return 1
-        fi
         SYSTEM_ALERT_RESTORE_DEVICE="$current"
         SYSTEM_ALERT_RESTORE_NEEDED=true
+        if ! "$SYSTEM_ALERT_SWITCH" -t system -s "$TARGET_DEVICE"; then
+            echo "failed to set system alert output to $TARGET_DEVICE" >&2
+            current="$("$SYSTEM_ALERT_SWITCH" -t system -c)" || return 1
+            if [ "$current" = "$SYSTEM_ALERT_RESTORE_DEVICE" ]; then
+                SYSTEM_ALERT_RESTORE_NEEDED=false
+                SYSTEM_ALERT_RESTORE_DEVICE=""
+            fi
+            return 1
+        fi
     fi
 
     current="$("$SYSTEM_ALERT_SWITCH" -t system -c)" || {
