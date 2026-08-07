@@ -24,11 +24,21 @@ clone-or-pull () {
     local dir=${2:-$(basename "${url%.git}")}
     if [[ -d $dir ]]; then
         echo "Pulling $dir"
-        git -C "$dir" pull --ff-only || FAILURES+=("git pull $dir")
+        if ! git -C "$dir" pull --ff-only; then
+            FAILURES+=("git pull $dir")
+            return 1
+        fi
     else
         echo "Cloning $dir"
-        git clone "$url" "$dir" || FAILURES+=("git clone $url")
+        if ! git clone "$url" "$dir"; then
+            FAILURES+=("git clone $url")
+            return 1
+        fi
     fi
+}
+
+clone-or-pull-continue () {
+    clone-or-pull "$@" || true
 }
 
 # ==== System packages ====
@@ -82,6 +92,7 @@ else
     # uv isn't in apt; use the official installer (installs to ~/.local/bin)
     if ! command -v uv > /dev/null; then
         curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
     fi
 fi
 
@@ -91,61 +102,68 @@ mkdir -p ~/Documents/gists/
 mkdir -p ~/bin/
 cd ~/Documents
 
-clone-or-pull git@github.com:git/git.git
-(cd ~/Documents/git/contrib/diff-highlight/ && make) \
-    || FAILURES+=("make diff-highlight")
+if clone-or-pull git@github.com:git/git.git; then
+    (cd ~/Documents/git/contrib/diff-highlight/ || exit 1; make) \
+        || FAILURES+=("make diff-highlight")
+fi
 
-clone-or-pull git@github.com:ipython/ipython.git
-clone-or-pull git@github.com:inducer/pudb.git
+clone-or-pull-continue git@github.com:ipython/ipython.git
+clone-or-pull-continue git@github.com:inducer/pudb.git
 
 # Emacs packages
-clone-or-pull git@github.com:dacap/keyfreq.git
+clone-or-pull-continue git@github.com:dacap/keyfreq.git
 
-clone-or-pull git@github.com:nonsequitur/smex.git
+if clone-or-pull git@github.com:nonsequitur/smex.git; then
 # Until https://github.com/nonsequitur/smex/pull/12 is merged
-(
-    cd smex
-    # ignore remote already exists
-    git remote add haxney git@github.com:haxney/smex.git 2> /dev/null || true
-    git fetch haxney
-    git checkout customize
-    git branch --set-upstream-to=haxney/customize customize
-) || FAILURES+=("smex branch setup")
+    (
+        cd smex || exit 1
+        # ignore remote already exists
+        git remote add haxney git@github.com:haxney/smex.git 2> /dev/null || true
+        git fetch haxney
+        git checkout customize
+        git branch --set-upstream-to=haxney/customize customize
+    ) || FAILURES+=("smex branch setup")
+fi
 
-clone-or-pull git@github.com:fgallina/python.el.git
-(
-    cd python.el
-    # ignore remote already exists
-    git remote add github git@github.com:asmeurer/python.el.git 2> /dev/null || true
-    git fetch github
-    git checkout indentation
-    git branch --set-upstream-to=github/indentation indentation
-) || FAILURES+=("python.el branch setup")
+if clone-or-pull git@github.com:fgallina/python.el.git; then
+    (
+        cd python.el || exit 1
+        # ignore remote already exists
+        git remote add github git@github.com:asmeurer/python.el.git 2> /dev/null || true
+        git fetch github
+        git checkout indentation
+        git branch --set-upstream-to=github/indentation indentation
+    ) || FAILURES+=("python.el branch setup")
+fi
 
-clone-or-pull git@github.com:purcell/mmm-mode.git
-clone-or-pull git@github.com:juergenhoetzel/profile-dotemacs.git
+clone-or-pull-continue git@github.com:purcell/mmm-mode.git
+clone-or-pull-continue git@github.com:juergenhoetzel/profile-dotemacs.git
 
-clone-or-pull git@github.com:tkf/emacs-jedi.git
+if clone-or-pull git@github.com:tkf/emacs-jedi.git; then
 # .emacs runs the jedi EPC server with ~/Documents/emacs-jedi/env/bin/python,
 # so the packages must be installed into that environment (a plain venv).
-(
-    cd emacs-jedi
-    if [[ ! -d env ]]; then
-        echo "Creating environment for emacs-jedi"
-        uv venv env
-    fi
-    uv pip install --python env/bin/python jedi epc
-) || FAILURES+=("emacs-jedi env setup")
+    (
+        cd emacs-jedi || exit 1
+        if [[ ! -d env ]]; then
+            echo "Creating environment for emacs-jedi"
+            uv venv env
+        fi
+        uv pip install --python env/bin/python jedi epc
+    ) || FAILURES+=("emacs-jedi env setup")
+fi
 
-clone-or-pull git@github.com:jwiegley/use-package.git
-(cd use-package && make elc) || FAILURES+=("make use-package")
+if clone-or-pull git@github.com:jwiegley/use-package.git; then
+    (cd use-package || exit 1; make elc) || FAILURES+=("make use-package")
+fi
 
-clone-or-pull git@github.com:asmeurer/mypython
-ln -sf ~/Documents/mypython/bin/mypython ~/bin/mypython
+if clone-or-pull git@github.com:asmeurer/mypython; then
+    ln -sf ~/Documents/mypython/bin/mypython ~/bin/mypython
+fi
 
 if [[ $(uname) != "Darwin" ]]; then
-    clone-or-pull git@github.com:jcs/xbanish.git
-    (cd xbanish && make) || FAILURES+=("make xbanish")
+    if clone-or-pull git@github.com:jcs/xbanish.git; then
+        (cd xbanish || exit 1; make) || FAILURES+=("make xbanish")
+    fi
 fi
 
 # ==== Python libraries (conda base) ====
