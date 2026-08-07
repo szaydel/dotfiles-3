@@ -301,6 +301,13 @@ def record_switch(to_email: str, now: float, source_reset_at: str | None) -> Non
     write_state(state)
 
 
+def arm_pending_reset(source_reset_at: str) -> None:
+    """Persist an away-time reset before attempting a possibly slow switch."""
+    state = read_state()
+    state["pending_source_reset_at"] = source_reset_at
+    write_state(state)
+
+
 def get_pending_reset() -> datetime | None:
     """The primary's recorded away-time 5-hour resetsAt as a datetime, or None."""
     s = read_state().get("pending_source_reset_at")
@@ -350,8 +357,12 @@ def do_switch(
 ) -> None:
     """Run claude-swap --switch-to; record + notify on success, notify on fail.
 
-    ``source_reset_at`` (set only on the AWAY switch) arms the pending reset.
+    ``source_reset_at`` (set only on the AWAY switch) arms the pending reset
+    before the subprocess starts. If claude-swap times out after changing
+    credentials, later fallback evaluations still know when to return.
     """
+    if source_reset_at is not None:
+        arm_pending_reset(source_reset_at)
     try:
         sw = subprocess.run(
             [swap, "--switch-to", to_email], capture_output=True, text=True,
@@ -367,6 +378,8 @@ def do_switch(
         record_switch(to_email, now, source_reset_at)
         notify(success_msg)
     else:
+        if source_reset_at is not None:
+            clear_pending_reset()
         notify(
             f"Tried to switch to {to_email} but claude-swap failed: "
             f"{sw.stderr.strip() or sw.stdout.strip()}"
