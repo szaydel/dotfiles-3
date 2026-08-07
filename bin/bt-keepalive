@@ -45,7 +45,6 @@ POLL_INTERVAL="${BT_KEEPALIVE_POLL:-2}"
 # Raise this if the baseline test fails to reproduce the clipping.
 IDLE_WAIT="${BT_KEEPALIVE_IDLE_WAIT:-45}"
 
-TEST_SOUND="/System/Library/Sounds/Glass.aiff"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/bt-keepalive"
 
 # --- dependencies ----------------------------------------------------------
@@ -143,10 +142,15 @@ run_one_test() {
     echo "staying quiet for ${IDLE_WAIT}s to let the link go idle..."
     sleep "$IDLE_WAIT"
 
-    echo "playing test sound 3 times -- listen to the START of the first one"
+    # Deliberately the system alert (beep), NOT afplay. afplay spawns a fresh
+    # process that opens the audio device seconds before any samples flow, so
+    # the link is awake by the time the sound starts -- it cannot reproduce the
+    # clipping. The alert path fires immediately on an idle device, which is
+    # what notification sounds (e.g. iTerm2's) actually use.
+    echo "playing alert 3 times -- listen to the START of the first one"
     for i in 1 2 3; do
-        echo "  -> sound $i"
-        afplay "$TEST_SOUND"
+        echo "  -> alert $i"
+        osascript -e 'beep' >/dev/null 2>&1
         [ "$i" -lt 3 ] && sleep 6
     done
 
