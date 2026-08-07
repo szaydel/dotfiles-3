@@ -69,30 +69,54 @@ tier_file() {
     esac
 }
 
+tone_valid() {
+    [ -s "$1" ] && "$FFMPEG" -v error -i "$1" -f null - \
+        </dev/null >/dev/null 2>&1
+}
+
 # Prints the tone path on stdout. Callers invoke this in a command
 # substitution, so a bare `exit` here would only kill the subshell -- it
 # returns nonzero instead and every caller checks.
 ensure_tone() {
-    local tier="$1" out
+    local tier="$1" out tmp status
     out="$(tier_file "$tier")" || { echo "unknown tier: $tier" >&2; return 2; }
 
-    if [ ! -s "$out" ]; then
-        mkdir -p "$CACHE_DIR"
+    if ! tone_valid "$out"; then
+        mkdir -p "$CACHE_DIR" || return $?
+        tmp="$(mktemp "$CACHE_DIR/${tier}.XXXXXX.wav")" || return $?
         echo "generating $tier tone..." >&2
         case "$tier" in
             silence)
                 "$FFMPEG" -y -loglevel error -f lavfi \
-                    -i anullsrc=r=44100:cl=stereo -t 30 -c:a pcm_s16le "$out"
+                    -i anullsrc=r=44100:cl=stereo -t 30 -c:a pcm_s16le "$tmp"
+                status=$?
                 ;;
             noise)
                 "$FFMPEG" -y -loglevel error -f lavfi \
-                    -i "anoisesrc=r=44100:a=0.0002:d=30" -ac 2 -c:a pcm_s16le "$out"
+                    -i "anoisesrc=r=44100:a=0.0002:d=30" -ac 2 -c:a pcm_s16le "$tmp"
+                status=$?
                 ;;
             noise-loud)
                 "$FFMPEG" -y -loglevel error -f lavfi \
-                    -i "anoisesrc=r=44100:a=0.003:d=30" -ac 2 -c:a pcm_s16le "$out"
+                    -i "anoisesrc=r=44100:a=0.003:d=30" -ac 2 -c:a pcm_s16le "$tmp"
+                status=$?
                 ;;
         esac
+
+        if [ "$status" -ne 0 ]; then
+            rm -f "$tmp"
+            return "$status"
+        fi
+        if ! tone_valid "$tmp"; then
+            rm -f "$tmp"
+            return 1
+        fi
+
+        mv -f "$tmp" "$out" || {
+            status=$?
+            rm -f "$tmp"
+            return "$status"
+        }
     fi
     echo "$out"
 }

@@ -78,6 +78,8 @@ brew "mactop"              # Apple Silicon top
 brew "imessage-exporter"   # export iMessage database
 
 # ==== Media / misc ====
+brew "ffmpeg"              # generate/play Bluetooth keepalive tones
+brew "switchaudio-osx"     # read/switch macOS audio devices
 brew "yt-dlp"              # audio/video downloader
 brew "zbar"                # barcode reader
 brew "gping"               # ping with a graph
