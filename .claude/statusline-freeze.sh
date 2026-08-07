@@ -42,20 +42,23 @@ FRONT_CACHE="$CACHE_DIR/.frontmost"
 FRONT_CACHE_TTL=2
 
 ensure_cache_dir() {
-    mkdir -p "$CACHE_DIR" 2>/dev/null || return 1
+    ( umask 077 && mkdir -p "$CACHE_DIR" ) 2>/dev/null || return 1
+    [[ -d "$CACHE_DIR" && ! -L "$CACHE_DIR" && -O "$CACHE_DIR" ]] || return 1
     chmod 700 "$CACHE_DIR" 2>/dev/null || return 1
 }
 
 tighten_cache_file() {
-    [[ -e "$1" ]] && chmod 600 "$1" 2>/dev/null
-    return 0
+    [[ -f "$1" && ! -L "$1" && -O "$1" ]] || return 1
+    chmod 600 "$1" 2>/dev/null || return 1
 }
 
 write_private_cache_file() {
     local target="$1"
-    local tmp="$target.$$"
+    local base tmp
 
     ensure_cache_dir || return 0
+    base=$(basename "$target")
+    tmp=$(mktemp "$CACHE_DIR/.${base}.XXXXXX") || return 0
     ( umask 077 && cat >"$tmp" ) 2>/dev/null &&
         chmod 600 "$tmp" 2>/dev/null &&
         mv -f "$tmp" "$target" 2>/dev/null &&
@@ -103,8 +106,8 @@ tab_is_focused() {
 # Frontmost session UUID if a sibling looked it up within the TTL, else empty.
 read_front_cache() {
     local ts uuid age
-    ensure_cache_dir
-    tighten_cache_file "$FRONT_CACHE"
+    ensure_cache_dir || return 0
+    tighten_cache_file "$FRONT_CACHE" || return 0
     [[ -r "$FRONT_CACHE" ]] || return 0
     read -r ts uuid <"$FRONT_CACHE" 2>/dev/null || return 0
     [[ -n "${ts:-}" && -n "${uuid:-}" ]] || return 0
@@ -127,11 +130,14 @@ input=$(cat)
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 cache="$CACHE_DIR/${session_id:-default}.txt"
 if [[ -n "$session_id" ]]; then
-    ensure_cache_dir
-    tighten_cache_file "$cache"
+    cache_is_secure=false
+    if ensure_cache_dir && tighten_cache_file "$cache"; then
+        cache_is_secure=true
+    fi
 fi
 
-if [[ -n "$session_id" ]] && ! tab_is_focused && [[ -s "$cache" ]]; then
+if [[ -n "$session_id" ]] && [[ "$cache_is_secure" == true ]] &&
+    ! tab_is_focused && [[ -s "$cache" ]]; then
     cat "$cache"
     exit 0
 fi
