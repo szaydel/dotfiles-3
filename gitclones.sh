@@ -44,6 +44,7 @@ if [[ $(uname) == "Darwin" ]]; then
     # Newer brew refuses to load formulas from untrusted third-party taps.
     # (`brew trust` doesn't exist in older brew, hence the || true.)
     local_brew trust d12frosted/emacs-plus 2> /dev/null || true
+    local_brew trust kenn-io/tap 2> /dev/null || true
     # Don't let a single formula failure abort the git-clones / uv / dictionary
     # steps below.
     local_brew bundle --file="$HOME/Documents/dotfiles/Brewfile" \
