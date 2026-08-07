@@ -142,9 +142,9 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
         
         # Check upstream status (equivalent to GIT_PS1_SHOWUPSTREAM="auto")
         upstream=""
-        if git rev-parse @{upstream} >/dev/null 2>&1; then
-            ahead=$(git rev-list --count @{upstream}..HEAD 2>/dev/null)
-            behind=$(git rev-list --count HEAD..@{upstream} 2>/dev/null)
+        if git rev-parse '@{upstream}' >/dev/null 2>&1; then
+            ahead=$(git rev-list --count '@{upstream}..HEAD' 2>/dev/null)
+            behind=$(git rev-list --count 'HEAD..@{upstream}' 2>/dev/null)
             if [[ "$ahead" -gt 0 && "$behind" -gt 0 ]]; then
                 upstream="<>"
             elif [[ "$ahead" -gt 0 ]]; then
@@ -305,13 +305,15 @@ if [[ -n "$model_is_fable" || "$account_email" == "$alt_fallback_email" ]]; then
     swap_bin="$HOME/.local/bin/claude-swap"
     [[ -x "$swap_bin" ]] || swap_bin=$(command -v claude-swap 2>/dev/null)
     if [[ -n "$swap_bin" ]]; then
-        swap_timeout=""
+        swap_timeout=()
         if command -v timeout >/dev/null 2>&1; then
-            swap_timeout="timeout 4"
+            swap_timeout=(timeout 4)
         elif command -v gtimeout >/dev/null 2>&1; then
-            swap_timeout="gtimeout 4"
+            swap_timeout=(gtimeout 4)
         fi
-        swap_json=$($swap_timeout "$swap_bin" --list --json 2>/dev/null)
+        if [[ ${#swap_timeout[@]} -gt 0 ]]; then
+            swap_json=$("${swap_timeout[@]}" "$swap_bin" --list --json 2>/dev/null)
+        fi
     fi
 fi
 
@@ -338,13 +340,15 @@ if [[ "$account_email" == "$alt_fallback_email" && -n "$swap_json" ]]; then
     alt_5h_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.fiveHour.pct // empty" 2>/dev/null | head -1)
     alt_7d_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.sevenDay.pct // empty" 2>/dev/null | head -1)
     if [[ "$alt_status" == "ok" && -n "$alt_5h_pct" ]]; then
-        alt_5h_free=$(printf '%.0f' "$(echo "100 - $alt_5h_pct" | bc)")
+        alt_5h_free_raw=$(echo "100 - $alt_5h_pct" | bc -l 2>/dev/null)
+        alt_5h_recovered=$(echo "$alt_5h_free_raw >= 10" | bc -l 2>/dev/null)
+        alt_5h_free=$(printf '%.0f' "$alt_5h_free_raw")
         alt_weekly_ok=1
         if [[ -n "$alt_7d_pct" ]]; then
-            alt_7d_free=$(printf '%.0f' "$(echo "100 - $alt_7d_pct" | bc)")
-            [[ $alt_7d_free -le 5 ]] && alt_weekly_ok=""
+            alt_7d_free_raw=$(echo "100 - $alt_7d_pct" | bc -l 2>/dev/null)
+            alt_weekly_ok=$(echo "$alt_7d_free_raw > 5" | bc -l 2>/dev/null)
         fi
-        if [[ -n "$alt_weekly_ok" && $alt_5h_free -ge 10 ]]; then
+        if [[ "$alt_weekly_ok" == "1" && "$alt_5h_recovered" == "1" ]]; then
             alt_green=$(printf '\033[1;38;2;100;220;120m')
             if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
             rate_line="${rate_line}${alt_green}↩ ${alt_primary_email%%@*} ${alt_5h_free}% free${ansi_reset}"

@@ -16,6 +16,7 @@ brew "d12frosted/emacs-plus/emacs-plus@30"
 
 # Shell. Note: the terminal profile should point at /opt/homebrew/bin/bash.
 brew "bash"
+brew "coreutils"   # provides gtimeout for bounded statusline helpers
 
 # CLI tools (moved here from pixi global)
 brew "bat"
