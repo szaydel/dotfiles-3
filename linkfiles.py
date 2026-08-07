@@ -103,10 +103,15 @@ def main():
         copy_file(join(args.source, file), join(args.destination, file),
             args.dry_run)
 
+    copy_file_sources = set(abspath(join(args.source, file))
+        for file in COPY_FILES)
+
     for dirpath, dirnames, filenames in walk(args.source):
         dest_head = join(args.destination, relpath(dirpath, start=args.source))
         for file in filenames:
             source = join(dirpath, file)
+            if abspath(source) in copy_file_sources:
+                continue
             if any(abspath(source).startswith(i) for i in ignore):
                 continue
             else:
