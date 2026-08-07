@@ -124,6 +124,10 @@ ensure_tone() {
 # --- keepalive process -----------------------------------------------------
 
 keepalive_pid=""
+SYSTEM_ALERT_SWITCH=""
+SYSTEM_ALERT_RESTORE_DEVICE=""
+SYSTEM_ALERT_RESTORE_NEEDED=false
+OSASCRIPT=""
 
 keepalive_running() {
     [ -n "$keepalive_pid" ] && kill -0 "$keepalive_pid" 2>/dev/null
@@ -145,11 +149,42 @@ stop_keepalive() {
     keepalive_pid=""
 }
 
+restore_system_alert_output() {
+    if [ "$SYSTEM_ALERT_RESTORE_NEEDED" != true ]; then
+        return 0
+    fi
+
+    if [ -n "$SYSTEM_ALERT_SWITCH" ] && [ -n "$SYSTEM_ALERT_RESTORE_DEVICE" ]; then
+        if "$SYSTEM_ALERT_SWITCH" -t system -s "$SYSTEM_ALERT_RESTORE_DEVICE" >/dev/null; then
+            echo "restored system alert output to $SYSTEM_ALERT_RESTORE_DEVICE" >&2
+        else
+            echo "failed to restore system alert output to $SYSTEM_ALERT_RESTORE_DEVICE" >&2
+        fi
+    fi
+
+    SYSTEM_ALERT_RESTORE_NEEDED=false
+    SYSTEM_ALERT_RESTORE_DEVICE=""
+}
+
+cleanup() {
+    local status=$?
+
+    stop_keepalive
+    restore_system_alert_output
+    return "$status"
+}
+
+signal_cleanup() {
+    stop_keepalive
+    restore_system_alert_output
+    exit 0
+}
+
 # A signal trap that only cleans up isn't enough: bash resumes the polling
 # loop afterward, which sees no keepalive running and immediately starts a new
 # ffplay. The signal handlers must exit explicitly.
-trap stop_keepalive EXIT
-trap 'stop_keepalive; exit 0' INT TERM
+trap cleanup EXIT
+trap signal_cleanup INT TERM
 
 # --- test mode -------------------------------------------------------------
 
@@ -180,8 +215,16 @@ run_one_test() {
     echo "posting notification 3 times -- listen to the START of the first one"
     for i in 1 2 3; do
         echo "  -> notification $i"
-        osascript -e "display notification \"test $i\" with title \"bt-keepalive\" sound name \"$NOTIF_SOUND\"" \
-            >/dev/null 2>&1
+        if ! "$OSASCRIPT" - "$i" "$NOTIF_SOUND" >/dev/null <<'APPLESCRIPT'; then
+on run argv
+    set notification_number to item 1 of argv
+    set notification_sound to item 2 of argv
+    display notification ("test " & notification_number) with title "bt-keepalive" sound name notification_sound
+end run
+APPLESCRIPT
+            stop_keepalive
+            return 1
+        fi
         [ "$i" -lt 3 ] && sleep 6
     done
 
@@ -189,8 +232,48 @@ run_one_test() {
     echo "was the beginning of the first sound clipped?"
 }
 
+prepare_test_notification_output() {
+    local current
+
+    OSASCRIPT="$(command -v osascript)" || {
+        echo "osascript not found; notification tests require macOS AppleScript" >&2
+        return 1
+    }
+
+    SYSTEM_ALERT_SWITCH="$(command -v SwitchAudioSource)" || {
+        echo "SwitchAudioSource not found (brew install switchaudio-osx)" >&2
+        return 1
+    }
+
+    current="$("$SYSTEM_ALERT_SWITCH" -t system -c)" || {
+        echo "failed to read current system alert output" >&2
+        return 1
+    }
+
+    if [ "$current" != "$TARGET_DEVICE" ]; then
+        echo "temporarily routing system alert output from $current to $TARGET_DEVICE"
+        if ! "$SYSTEM_ALERT_SWITCH" -t system -s "$TARGET_DEVICE"; then
+            echo "failed to set system alert output to $TARGET_DEVICE" >&2
+            return 1
+        fi
+        SYSTEM_ALERT_RESTORE_DEVICE="$current"
+        SYSTEM_ALERT_RESTORE_NEEDED=true
+    fi
+
+    current="$("$SYSTEM_ALERT_SWITCH" -t system -c)" || {
+        echo "failed to verify current system alert output" >&2
+        return 1
+    }
+    if [ "$current" != "$TARGET_DEVICE" ]; then
+        echo "system alert output is $current, expected $TARGET_DEVICE" >&2
+        return 1
+    fi
+}
+
 run_tests() {
     local tiers
+
+    prepare_test_notification_output || exit $?
 
     # Focus/DND silences notifications entirely, which looks exactly like a
     # tier that fixed the problem. There is no reliable way to read the live
