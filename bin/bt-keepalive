@@ -1,0 +1,218 @@
+#!/bin/bash
+# Keep a Bluetooth headset awake so the start of short sounds isn't clipped.
+#
+# Bluetooth headsets clip the beginning of a sound effect after a period of
+# quiet, because two separate power-saving layers can kick in:
+#
+#   1. CoreAudio tears down the output stream when nothing has played for a
+#      while, so the next sound plays into a link that isn't ready yet.
+#   2. The headset sleeps its own amplifier even while still receiving a
+#      stream, so the audio arrives but the speakers aren't powered up.
+#
+# The distinction matters: (1) is fixed by ANY open stream, digital silence
+# included, while (2) needs an actual nonzero signal. Music already playing
+# prevents both, which is the usual clue that this is what's happening.
+#
+# The daemon only runs while the target device is the default output, so it
+# never holds the Bluetooth link open when you've switched to the speakers.
+# It is playback-only and never opens the microphone, so it cannot push the
+# headset into HFP (headset) mode and degrade output quality.
+#
+# Usage:
+#   bt-keepalive                 run the daemon (see TIER below)
+#   bt-keepalive --test          A/B test all tiers to find the one you need
+#   bt-keepalive --test baseline test a single tier
+#
+# Dependencies: ffmpeg (generates the tones), switchaudio-osx (reads the
+# current default output device).
+
+set -u
+
+# --- configuration ---------------------------------------------------------
+
+# Device to keep awake, exactly as it appears in Sound settings.
+TARGET_DEVICE="${BT_KEEPALIVE_DEVICE:-Arctis Nova Pro Omni}"
+
+# Which keepalive signal to loop. Set to whichever tier wins the A/B test:
+#   silence      pure digital silence     (fixes cause 1 only)
+#   noise        ~-76 dBFS peak           (fixes cause 2, inaudible)
+#   noise-loud   ~-53 dBFS peak           (louder fallback, still inaudible)
+TIER="${BT_KEEPALIVE_TIER:-noise}"
+
+POLL_INTERVAL="${BT_KEEPALIVE_POLL:-2}"
+
+# Seconds of quiet the test waits before playing, to let things fall asleep.
+# Raise this if the baseline test fails to reproduce the clipping.
+IDLE_WAIT="${BT_KEEPALIVE_IDLE_WAIT:-45}"
+
+TEST_SOUND="/System/Library/Sounds/Glass.aiff"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/bt-keepalive"
+
+# --- dependencies ----------------------------------------------------------
+
+FFPLAY="$(command -v ffplay)" || { echo "ffplay not found (brew install ffmpeg)" >&2; exit 1; }
+FFMPEG="$(command -v ffmpeg)" || { echo "ffmpeg not found (brew install ffmpeg)" >&2; exit 1; }
+
+# --- keepalive tones -------------------------------------------------------
+#
+# Generated on demand rather than committed: they're multi-megabyte binaries
+# that ffmpeg reproduces deterministically.
+
+tier_file() {
+    case "$1" in
+        silence)    echo "$CACHE_DIR/silence.wav" ;;
+        noise)      echo "$CACHE_DIR/quietnoise.wav" ;;
+        noise-loud) echo "$CACHE_DIR/quietnoise-loud.wav" ;;
+        *)          return 1 ;;
+    esac
+}
+
+# Prints the tone path on stdout. Callers invoke this in a command
+# substitution, so a bare `exit` here would only kill the subshell -- it
+# returns nonzero instead and every caller checks.
+ensure_tone() {
+    local tier="$1" out
+    out="$(tier_file "$tier")" || { echo "unknown tier: $tier" >&2; return 2; }
+
+    if [ ! -s "$out" ]; then
+        mkdir -p "$CACHE_DIR"
+        echo "generating $tier tone..." >&2
+        case "$tier" in
+            silence)
+                "$FFMPEG" -y -loglevel error -f lavfi \
+                    -i anullsrc=r=44100:cl=stereo -t 30 -c:a pcm_s16le "$out"
+                ;;
+            noise)
+                "$FFMPEG" -y -loglevel error -f lavfi \
+                    -i "anoisesrc=r=44100:a=0.0002:d=30" -ac 2 -c:a pcm_s16le "$out"
+                ;;
+            noise-loud)
+                "$FFMPEG" -y -loglevel error -f lavfi \
+                    -i "anoisesrc=r=44100:a=0.003:d=30" -ac 2 -c:a pcm_s16le "$out"
+                ;;
+        esac
+    fi
+    echo "$out"
+}
+
+# --- keepalive process -----------------------------------------------------
+
+keepalive_pid=""
+
+keepalive_running() {
+    [ -n "$keepalive_pid" ] && kill -0 "$keepalive_pid" 2>/dev/null
+}
+
+start_keepalive() {
+    # -loop 0 loops within one process, so there is no per-iteration restart
+    # gap for the amp to fall asleep in.
+    "$FFPLAY" -nodisp -autoexit -loglevel quiet -loop 0 "$1" \
+        </dev/null >/dev/null 2>&1 &
+    keepalive_pid=$!
+}
+
+stop_keepalive() {
+    if keepalive_running; then
+        kill "$keepalive_pid" 2>/dev/null
+        wait "$keepalive_pid" 2>/dev/null
+    fi
+    keepalive_pid=""
+}
+
+# A signal trap that only cleans up isn't enough: bash resumes the polling
+# loop afterward, which sees no keepalive running and immediately starts a new
+# ffplay. The signal handlers must exit explicitly.
+trap stop_keepalive EXIT
+trap 'stop_keepalive; exit 0' INT TERM
+
+# --- test mode -------------------------------------------------------------
+
+run_one_test() {
+    local tier="$1" wav
+
+    echo
+    echo "=== tier: $tier ==="
+    if [ "$tier" = baseline ]; then
+        echo "no keepalive (this should reproduce the problem)"
+    else
+        wav="$(ensure_tone "$tier")" || return 2
+        start_keepalive "$wav"
+        echo "keepalive running (pid $keepalive_pid)"
+    fi
+
+    echo "staying quiet for ${IDLE_WAIT}s to let the link go idle..."
+    sleep "$IDLE_WAIT"
+
+    echo "playing test sound 3 times -- listen to the START of the first one"
+    for i in 1 2 3; do
+        echo "  -> sound $i"
+        afplay "$TEST_SOUND"
+        [ "$i" -lt 3 ] && sleep 6
+    done
+
+    stop_keepalive
+    echo "was the beginning of the first sound clipped?"
+}
+
+run_tests() {
+    local tiers
+
+    if [ $# -gt 0 ]; then
+        tiers="$*"
+    else
+        tiers="baseline silence noise noise-loud"
+        echo "Testing all tiers in order. Stop at the first one that fixes it --"
+        echo "the quietest effective keepalive is the one to keep."
+        echo "Ctrl-C when you have your answer."
+    fi
+
+    for tier in $tiers; do
+        run_one_test "$tier" || exit $?
+    done
+
+    echo
+    echo "Set the winner with: BT_KEEPALIVE_TIER=<tier> (or edit TIER in this script)"
+}
+
+# --- daemon mode -----------------------------------------------------------
+
+run_daemon() {
+    local wav switch current last_device=""
+
+    switch="$(command -v SwitchAudioSource)" || {
+        echo "SwitchAudioSource not found (brew install switchaudio-osx)" >&2
+        exit 1
+    }
+    wav="$(ensure_tone "$TIER")" || exit $?
+
+    # ffplay binds to whatever device was default when it launched, so any
+    # change of default output requires a restart. Tracking the last-seen
+    # device makes that explicit and handles the headphones disappearing.
+    while true; do
+        current="$("$switch" -c 2>/dev/null)"
+
+        if [ "$current" = "$TARGET_DEVICE" ]; then
+            if [ "$current" != "$last_device" ]; then
+                stop_keepalive
+                start_keepalive "$wav"
+            elif ! keepalive_running; then
+                # Revive it: this happens when the headphones power off
+                # mid-stream and then come back.
+                start_keepalive "$wav"
+            fi
+        else
+            keepalive_running && stop_keepalive
+        fi
+
+        last_device="$current"
+        sleep "$POLL_INTERVAL"
+    done
+}
+
+# --- entry point -----------------------------------------------------------
+
+case "${1:-}" in
+    --test) shift; run_tests "$@" ;;
+    "")     run_daemon ;;
+    *)      echo "usage: $(basename "$0") [--test [tier...]]" >&2; exit 2 ;;
+esac
