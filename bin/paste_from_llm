@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --with pyperclip --with requests python3
+#!/usr/bin/env -S uv run --no-project --with pyperclip --with requests python3
 # Emacs, this is -*-python-*-
 import pyperclip
 import os
