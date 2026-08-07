@@ -61,8 +61,9 @@ Wired in ~/.claude/settings.json on:
 Because PostToolUse fires per tool call, CHECK_INTERVAL_SECONDS throttles the
 actual work: invocations inside that window exit silently without running
 claude-swap or writing a log line. The throttle clock is the mtime of
-THROTTLE_PATH, touched (not read-modify-written) so that concurrent sessions
-racing on it cannot corrupt the switch state in STATE_PATH.
+THROTTLE_PATH; a nonblocking process lock serializes that throttle decision
+with switch-state mutation so concurrent sessions cannot duplicate a switch or
+race while reading/writing STATE_PATH.
 
 A mid-turn switch does take effect on the running session -- claude-swap
 rewrites ~/.claude/.credentials.json on every switch specifically to bump its
@@ -81,6 +82,7 @@ needs undoing -- the hook then no-ops on every turn, and the status line's
 fallback account is the active one. For a temporary, per-shell disable
 instead, export CLAUDE_AUTO_SWAP_DISABLED=1.
 """
+import fcntl
 import json
 import os
 import shutil
@@ -134,6 +136,9 @@ RETURN_FRESH_FREE_PCT = 90.0
 # Hold on the fallback if we can positively see the primary's weekly window has
 # this little free left -- it would be walled until the 7-day reset, days away.
 WEEKLY_WALL_FREE_PCT = 2.0
+# usageStatus values that mean the usage API did not return a usable status for
+# an inactive account, not that the account is positively limit-walled.
+USAGE_UNAVAILABLE_STATUSES = {"unavailable"}
 # Known install location, used first so the hook works even if the spawning
 # shell's PATH lacks ~/.local/bin; falls back to PATH lookup if it moves.
 CLAUDE_SWAP_PATH = str(Path.home() / ".local" / "bin" / "claude-swap")
@@ -143,12 +148,13 @@ CLAUDE_SWAP_PATH = str(Path.home() / ".local" / "bin" / "claude-swap")
 # Deliberately not in Dropbox -- it is per-machine, ephemeral state.
 STATE_PATH = Path.home() / ".claude" / "auto-swap-state.json"
 # Throttle clock for CHECK_INTERVAL_SECONDS. Deliberately a *separate*, empty
-# file whose mtime is the timestamp, rather than a key in STATE_PATH: at
-# PostToolUse cadence several sessions touch it concurrently, and a
-# read-modify-write of STATE_PATH would let one session's throttle stamp clobber
-# another's freshly written ``pending_source_reset_at`` (silently disarming the
-# return switch). Touching a file is atomic, so these races are harmless.
+# file whose mtime is the timestamp, rather than a key in STATE_PATH. Access to
+# it is protected by LOCK_PATH, which also protects STATE_PATH mutation.
 THROTTLE_PATH = Path.home() / ".claude" / "auto-swap-last-check"
+# Nonblocking inter-process lock. If another hook is already evaluating, this
+# invocation silently exits; the active evaluator owns the throttle stamp and
+# any state-file mutation.
+LOCK_PATH = Path.home() / ".claude" / "auto-swap.lock"
 # Append-only audit log: one line per *non-throttled* invocation (so at most one
 # per CHECK_INTERVAL_SECONDS across all sessions) recording what usage the hook
 # saw and what it decided. This is the diagnostic for "it didn't switch in time":
@@ -164,6 +170,20 @@ def resolve_swap() -> str | None:
     if Path(CLAUDE_SWAP_PATH).is_file():
         return CLAUDE_SWAP_PATH
     return shutil.which("claude-swap")
+
+
+def is_unavailable_status(status: str | None) -> bool:
+    """True when usageStatus means no current data, not a known account wall."""
+    return status in USAGE_UNAVAILABLE_STATUSES
+
+
+def is_limiting_status(status: str | None) -> bool:
+    """True when usageStatus positively indicates the account should not run."""
+    return (
+        status is not None
+        and status != "ok"
+        and not is_unavailable_status(status)
+    )
 
 
 def window_free_pct(usage: dict, key: str) -> float | None:
@@ -223,13 +243,25 @@ def project_empty_minutes(usage: dict, key: str, window_mins: float) -> float | 
     return projected if projected < mins_left else None
 
 
+def acquire_evaluation_lock():
+    """Acquire the process lock, or return None if another hook has it."""
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = LOCK_PATH.open("w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        return None
+    return lock_file
+
+
 def throttled(now: float) -> bool:
     """True if another invocation already evaluated within CHECK_INTERVAL_SECONDS.
 
-    Uses THROTTLE_PATH's mtime as the clock and stamps it (an atomic touch) when
-    the caller is cleared to proceed, so concurrent sessions self-limit to one
-    real evaluation per interval between them. A missing file -- first run after
-    a reboot that clears the state dir -- reads as "not throttled".
+    Uses THROTTLE_PATH's mtime as the clock and stamps it when the caller is
+    cleared to proceed. Call only while holding LOCK_PATH, which makes the
+    stat/touch decision atomic across hook processes. A missing file -- first
+    run after a reboot that clears the state dir -- reads as "not throttled".
     """
     try:
         if now - THROTTLE_PATH.stat().st_mtime < CHECK_INTERVAL_SECONDS:
@@ -302,11 +334,14 @@ def notify(msg: str) -> None:
     """Best-effort macOS notification plus a stderr line for the transcript."""
     print(msg, file=sys.stderr)
     if shutil.which("osascript"):
-        subprocess.run(
-            ["osascript", "-e",
-             f'display notification "{msg}" with title "claude-swap"'],
-            capture_output=True, timeout=NOTIFY_TIMEOUT_SECONDS,
-        )
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display notification "{msg}" with title "claude-swap"'],
+                capture_output=True, timeout=NOTIFY_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            log(f"notification timed out after {NOTIFY_TIMEOUT_SECONDS:.0f}s")
 
 
 def do_switch(
@@ -317,10 +352,17 @@ def do_switch(
 
     ``source_reset_at`` (set only on the AWAY switch) arms the pending reset.
     """
-    sw = subprocess.run(
-        [swap, "--switch-to", to_email], capture_output=True, text=True,
-        timeout=SWITCH_TIMEOUT_SECONDS,
-    )
+    try:
+        sw = subprocess.run(
+            [swap, "--switch-to", to_email], capture_output=True, text=True,
+            timeout=SWITCH_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        log(
+            f"switch to {to_email} timed out after "
+            f"{SWITCH_TIMEOUT_SECONDS:.0f}s"
+        )
+        return
     if sw.returncode == 0:
         record_switch(to_email, now, source_reset_at)
         notify(success_msg)
@@ -397,10 +439,15 @@ def handle_target_active(swap: str, source: dict | None, now: float) -> str:
         reason = f"past recorded 5h reset {pending:%H:%M}Z"
 
     # Signal 2 (only when the inactive usage IS fetchable): 5h headroom jumped
-    # back to fresh. Also read the weekly window to guard against returning to a
-    # weekly-walled account.
+    # back to fresh. Also read usageStatus / the weekly window to guard against
+    # returning to a positively walled account. A status like "unavailable"
+    # means "no current data" for the inactive account and does not block the
+    # wall-clock return signal.
     weekly_walled = False
-    if source and source.get("usageStatus") == "ok":
+    source_status = source.get("usageStatus") if source else None
+    if is_limiting_status(source_status):
+        weekly_walled = True
+    if source and source_status == "ok":
         usage = source.get("usage") or {}
         weekly_free = window_free_pct(usage, "sevenDay")
         weekly_walled = (
@@ -418,6 +465,11 @@ def handle_target_active(swap: str, source: dict | None, now: float) -> str:
         status = source.get("usageStatus") if source else "no-source"
         return f"stay-on-{TARGET_NAME} (no reset signal; source {status})"
     if weekly_walled:
+        if is_limiting_status(source_status):
+            return (
+                f"stay-on-{TARGET_NAME} "
+                f"({SOURCE_NAME} usageStatus={source_status})"
+            )
         return f"stay-on-{TARGET_NAME} ({SOURCE_NAME} weekly walled)"
     do_switch(
         swap, SOURCE_EMAIL, now,
@@ -456,6 +508,17 @@ def main() -> int:
     sys.stdin.read()
 
     now = time.time()
+    lock_file = acquire_evaluation_lock()
+    if lock_file is None:
+        return 0
+    try:
+        return evaluate(now)
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
+
+def evaluate(now: float) -> int:
     # Throttle before anything else, including the log: at PostToolUse cadence
     # the un-throttled path would run per tool call and bury the audit log.
     if throttled(now):

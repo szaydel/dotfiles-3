@@ -55,6 +55,24 @@
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -119,6 +137,24 @@
           {
             "type": "command",
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
           }
         ]
       }
