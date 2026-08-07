@@ -52,11 +52,24 @@ tighten_cache_file() {
     chmod 600 "$1" 2>/dev/null || return 1
 }
 
+valid_session_id() {
+    [[ "$1" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]
+}
+
+cache_target_is_safe() {
+    local target="$1"
+    local target_parent
+
+    target_parent=$(dirname "$target") || return 1
+    [[ "$target_parent" == "$CACHE_DIR" ]] || return 1
+}
+
 write_private_cache_file() {
     local target="$1"
     local base tmp
 
     ensure_cache_dir || return 0
+    cache_target_is_safe "$target" || return 0
     base=$(basename "$target")
     tmp=$(mktemp "$CACHE_DIR/.${base}.XXXXXX") || return 0
     ( umask 077 && cat >"$tmp" ) 2>/dev/null &&
@@ -128,15 +141,16 @@ write_front_cache() {
 input=$(cat)
 
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
-cache="$CACHE_DIR/${session_id:-default}.txt"
-if [[ -n "$session_id" ]]; then
+cache=
+if [[ -n "$session_id" ]] && valid_session_id "$session_id"; then
+    cache="$CACHE_DIR/$session_id.txt"
     cache_is_secure=false
     if ensure_cache_dir && tighten_cache_file "$cache"; then
         cache_is_secure=true
     fi
 fi
 
-if [[ -n "$session_id" ]] && [[ "$cache_is_secure" == true ]] &&
+if [[ -n "$cache" ]] && [[ "$cache_is_secure" == true ]] &&
     ! tab_is_focused && [[ -s "$cache" ]]; then
     cat "$cache"
     exit 0
@@ -147,7 +161,7 @@ fi
 output=$(printf '%s' "$input" | "$@")
 status=$?
 
-if [[ -n "$session_id" ]]; then
+if [[ -n "$cache" ]]; then
     printf '%s' "$output" | write_private_cache_file "$cache"
 fi
 
