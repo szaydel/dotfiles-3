@@ -83,22 +83,22 @@ ensure_tone() {
 
     if ! tone_valid "$out"; then
         mkdir -p "$CACHE_DIR" || return $?
-        tmp="$(mktemp "$CACHE_DIR/${tier}.XXXXXX.wav")" || return $?
+        tmp="$(mktemp "$CACHE_DIR/${tier}.wav.XXXXXX")" || return $?
         echo "generating $tier tone..." >&2
         case "$tier" in
             silence)
                 "$FFMPEG" -y -loglevel error -f lavfi \
-                    -i anullsrc=r=44100:cl=stereo -t 30 -c:a pcm_s16le "$tmp"
+                    -i anullsrc=r=44100:cl=stereo -t 30 -c:a pcm_s16le -f wav "$tmp"
                 status=$?
                 ;;
             noise)
                 "$FFMPEG" -y -loglevel error -f lavfi \
-                    -i "anoisesrc=r=44100:a=0.0002:d=30" -ac 2 -c:a pcm_s16le "$tmp"
+                    -i "anoisesrc=r=44100:a=0.0002:d=30" -ac 2 -c:a pcm_s16le -f wav "$tmp"
                 status=$?
                 ;;
             noise-loud)
                 "$FFMPEG" -y -loglevel error -f lavfi \
-                    -i "anoisesrc=r=44100:a=0.003:d=30" -ac 2 -c:a pcm_s16le "$tmp"
+                    -i "anoisesrc=r=44100:a=0.003:d=30" -ac 2 -c:a pcm_s16le -f wav "$tmp"
                 status=$?
                 ;;
         esac
