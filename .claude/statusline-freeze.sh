@@ -41,6 +41,29 @@ ITERM_BUNDLE_ID="com.googlecode.iterm2"
 FRONT_CACHE="$CACHE_DIR/.frontmost"
 FRONT_CACHE_TTL=2
 
+ensure_cache_dir() {
+    mkdir -p "$CACHE_DIR" 2>/dev/null || return 1
+    chmod 700 "$CACHE_DIR" 2>/dev/null || return 1
+}
+
+tighten_cache_file() {
+    [[ -e "$1" ]] && chmod 600 "$1" 2>/dev/null
+    return 0
+}
+
+write_private_cache_file() {
+    local target="$1"
+    local tmp="$target.$$"
+
+    ensure_cache_dir || return 0
+    ( umask 077 && cat >"$tmp" ) 2>/dev/null &&
+        chmod 600 "$tmp" 2>/dev/null &&
+        mv -f "$tmp" "$target" 2>/dev/null &&
+        chmod 600 "$target" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null
+    return 0
+}
+
 # Whether this session's iTerm2 tab is the one being looked at.
 #
 # Returns true (render live) whenever focus cannot be established -- not
@@ -80,6 +103,8 @@ tab_is_focused() {
 # Frontmost session UUID if a sibling looked it up within the TTL, else empty.
 read_front_cache() {
     local ts uuid age
+    ensure_cache_dir
+    tighten_cache_file "$FRONT_CACHE"
     [[ -r "$FRONT_CACHE" ]] || return 0
     read -r ts uuid <"$FRONT_CACHE" 2>/dev/null || return 0
     [[ -n "${ts:-}" && -n "${uuid:-}" ]] || return 0
@@ -92,12 +117,7 @@ read_front_cache() {
 # Publish via a temp file + mv so a concurrent reader never sees a half-written
 # line. Racing writers are benign: they agree on the value.
 write_front_cache() {
-    local tmp="$FRONT_CACHE.$$"
-    mkdir -p "$CACHE_DIR" 2>/dev/null || return 0
-    printf '%s %s\n' "$(date +%s)" "$1" >"$tmp" 2>/dev/null &&
-        mv -f "$tmp" "$FRONT_CACHE" 2>/dev/null
-    rm -f "$tmp" 2>/dev/null
-    return 0
+    printf '%s %s\n' "$(date +%s)" "$1" | write_private_cache_file "$FRONT_CACHE"
 }
 
 [[ $# -gt 0 ]] || { echo "usage: statusline-freeze.sh <command...>" >&2; exit 2; }
@@ -106,6 +126,10 @@ input=$(cat)
 
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 cache="$CACHE_DIR/${session_id:-default}.txt"
+if [[ -n "$session_id" ]]; then
+    ensure_cache_dir
+    tighten_cache_file "$cache"
+fi
 
 if [[ -n "$session_id" ]] && ! tab_is_focused && [[ -s "$cache" ]]; then
     cat "$cache"
@@ -118,7 +142,7 @@ output=$(printf '%s' "$input" | "$@")
 status=$?
 
 if [[ -n "$session_id" ]]; then
-    mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$output" >"$cache" 2>/dev/null
+    printf '%s' "$output" | write_private_cache_file "$cache"
 fi
 
 printf '%s' "$output"
