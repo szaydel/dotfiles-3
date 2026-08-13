@@ -106,11 +106,33 @@
 ;; ==== lsp stuff ====
 
 (use-package eglot)
-;; Enable eglot mode if it is supported
-(defun eglot-ensure ()
-  (when (eglot-current-server)
-    (eglot-ensure)))
-(add-hook 'prog-mode-hook 'eglot-ensure)
+
+;; project.el can't find project roots via VC because vc-handled-backends is
+;; disabled below; use the .git directory as an explicit root marker so that
+;; eglot uses the repository root as the LSP workspace root.
+(setq project-vc-extra-root-markers '(".git"))
+
+;; Servers like basedpyright ask the client to watch every directory in the
+;; workspace. Emacs file notification on macOS costs one file descriptor per
+;; directory, which exhausts the fd limit in a large repo and crashes the
+;; connection. Tell servers we don't support file watching.
+(cl-defmethod eglot-client-capabilities :around (_server)
+  (let ((caps (cl-call-next-method)))
+    (plist-put (plist-get caps :workspace)
+               :didChangeWatchedFiles '(:dynamicRegistration :json-false))
+    caps))
+
+;; Use basedpyright for Python. The default eglot-server-programs entry picks
+;; whichever supported server it finds first on PATH; this makes the choice
+;; deterministic.
+(add-to-list 'eglot-server-programs
+             '((python-mode python-ts-mode) . ("basedpyright-langserver" "--stdio")))
+(add-hook 'python-mode-hook 'eglot-ensure)
+(add-hook 'python-ts-mode-hook 'eglot-ensure)
+
+;; Inlay hints (inferred types rendered inline in the buffer) are enabled by
+;; default in Emacs 30 and are too noisy on unannotated code.
+(add-hook 'eglot-managed-mode-hook (lambda () (eglot-inlay-hints-mode -1)))
 
 ;; (add-to-list 'eglot-server-programs '((python-mode) "jedi-language-server"))
 
@@ -203,6 +225,14 @@ See URL `http://pypi.python.org/pypi/pyflakes'."
   :modes (python-mode python-ts-mode))
 
 (add-to-list 'flycheck-checkers 'python-pyflakes)
+
+;; ===== flycheck-eglot ======
+
+;; Route eglot (LSP) diagnostics through flycheck instead of flymake, so
+;; M-n/M-p and the flycheck UI work for them. This bridge is built into
+;; flycheck 38+; the third-party flycheck-eglot package clashes with it.
+(setq flycheck-eglot-exclusive nil)
+(global-flycheck-eglot-mode 1)
 
 ;; ==== Undo-tree ====
 ;; Git repo at http://www.dr-qubit.org/git/undo-tree.git
