@@ -270,10 +270,10 @@ if [[ -z "${CLAUDECODE}" ]]; then
         alias rtf2latex='/usr/local/rtf2latex2e/rtf2latex2e.bin'
         alias grep='grep -i --color=always'
         alias mkdir='mkdir -p'
-        alias cdsympy='cd ~/Documents/python/sympy/sympy'
-        alias cds='cd ~/Documents/python/sympy/sympy'
-        alias cdss='cd ~/Documents/python/sympy/sympy-scratch'
-        alias cdsss='cd ~/Documents/python/sympy/sympy-scratch2'
+        alias cdsympy='cd ~/Documents/Python/sympy/sympy'
+        alias cds='cd ~/Documents/Python/sympy/sympy'
+        alias cdss='cd ~/Documents/Python/sympy/sympy-scratch'
+        alias cdsss='cd ~/Documents/Python/sympy/sympy-scratch2'
         alias isympy='mypython -c %sympy'
         if [ -z "$MAC" ]; then
             alias top='top -o %CPU'
@@ -390,20 +390,20 @@ add_tab_color () {
 
 # Directory codes are
 # sympy - Red
-DIR_SYMPY="$HOME/Documents/python/sympy/sympy"
+DIR_SYMPY="$HOME/Documents/Python/sympy/sympy"
 add_tab_color "$DIR_SYMPY" "$TAB_RED"
 
 # sympy-scratch - Orange
-DIR_SYMPY_SCRATCH="$HOME/Documents/python/sympy/sympy-scratch"
+DIR_SYMPY_SCRATCH="$HOME/Documents/Python/sympy/sympy-scratch"
 add_tab_color "$DIR_SYMPY_SCRATCH" "$TAB_ORANGE"
 
 # sympy-bot - Purple
-DIR_SYMPY_BOT="$HOME/Documents/python/sympy/sympy-bot"
+DIR_SYMPY_BOT="$HOME/Documents/Python/sympy/sympy-bot"
 add_tab_color "$DIR_SYMPY_BOT" "$TAB_PURPLE"
 
 # sympy other (like sympy-live or sympy.wiki) - Yellow
 # Note, this one must be tested after the above ones
-DIR_SYMPY_OTHER="$HOME/Documents/python/sympy"
+DIR_SYMPY_OTHER="$HOME/Documents/Python/sympy"
 add_tab_color "$DIR_SYMPY_OTHER" "$TAB_YELLOW"
 
 # conda-recipes - Purple
