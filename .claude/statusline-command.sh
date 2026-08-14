@@ -333,12 +333,24 @@ fi
 # the primary has 5-hour headroom again — the cue that a switch back is
 # possible. Mirrors auto-swap-on-low-usage.py's gating: primary usageStatus
 # "ok", 5-hour window meaningfully recovered (>=10% free), weekly cap not
-# walled (>5% free; missing weekly data counts as ok).
+# walled (>5% free; missing weekly data counts as ok), and — when Fable is the
+# active model — the primary's Fable weekly bucket not spent (>5% free), since
+# the hook deliberately holds on the fallback in that case.
 if [[ "$account_email" == "$alt_fallback_email" && -n "$swap_json" ]]; then
     alt_primary='.accounts[]? | select(.email=="'"$alt_primary_email"'")'
     alt_status=$(echo "$swap_json" | jq -r "$alt_primary | .usageStatus // empty" 2>/dev/null | head -1)
     alt_5h_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.fiveHour.pct // empty" 2>/dev/null | head -1)
     alt_7d_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.sevenDay.pct // empty" 2>/dev/null | head -1)
+    alt_fable_held=""
+    if [[ -n "$model_is_fable" ]]; then
+        alt_fable_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.scoped[]? | select(.name==\"Fable\") | .pct // empty" 2>/dev/null | head -1)
+        if [[ -n "$alt_fable_pct" ]] && [[ "$(echo "100 - $alt_fable_pct <= 5" | bc -l 2>/dev/null)" == "1" ]]; then
+            alt_fable_held="1"
+        fi
+    fi
+    if [[ -n "$alt_fable_held" ]]; then
+        alt_status=""   # hook is holding here for Fable — don't advertise a return
+    fi
     if [[ "$alt_status" == "ok" && -n "$alt_5h_pct" ]]; then
         alt_5h_free_raw=$(echo "100 - $alt_5h_pct" | bc -l 2>/dev/null)
         alt_5h_recovered=$(echo "$alt_5h_free_raw >= 10" | bc -l 2>/dev/null)
