@@ -122,40 +122,50 @@ if [[ -f "$HOME/.claude.json" ]]; then
     account_email=$(jq -r '.oauthAccount.emailAddress // empty' "$HOME/.claude.json" 2>/dev/null)
 fi
 
-# Get git status (equivalent to __git_ps1)
+# Run git from the session's directory. Everything else on this line is
+# derived from the status line JSON, so without this the branch state could
+# describe a different repository than the basename sitting next to it
+# whenever the status line subprocess's inherited cwd differs from
+# workspace.current_dir.
+if [[ -d "$current_dir" ]]; then
+    cd "$current_dir" || true
+fi
+
+# Get git status by delegating to git's own __git_ps1 -- the very function the
+# bash prompt uses (.profile sources $GIT_PROMPT_FILE) -- so the status line
+# and the shell prompt cannot drift apart.
+#
+# A hand-rolled "equivalent to __git_ps1" used to live here and had silently
+# diverged in five ways: it drove the "*" off `git status --porcelain`, which
+# counts untracked files, so repos with nothing uncommitted still showed "*";
+# it collapsed staged changes into "*" instead of "+"; it scoped the untracked
+# check to the cwd rather than the whole repo; it omitted the "=" that marks a
+# branch level with its upstream; and it knew nothing of rebase/merge/bisect
+# state, unborn branches, or the parenthesized detached-HEAD format.
+#
+# Mirror .profile's prompt configuration rather than inheriting it: Claude Code
+# need not have been launched from an interactive bash, and an unset
+# GIT_PS1_SHOWDIRTYSTATE would silently drop the markers instead of failing.
+export GIT_PS1_SHOWDIRTYSTATE=1
+export GIT_PS1_SHOWUNTRACKEDFILES=1
+export GIT_PS1_SHOWUPSTREAM="auto"
+export GIT_PS1_STATESEPARATOR=''
+
+git_prompt_file="${GIT_PROMPT_FILE:-$HOME/Documents/git/contrib/completion/git-prompt.sh}"
+if [[ -r "$git_prompt_file" ]]; then
+    source "$git_prompt_file"
+fi
+
 git_status_part=""
-if git rev-parse --git-dir > /dev/null 2>&1; then
-    # Check if we're in a git repository
-    git_branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
-    if [[ -n "$git_branch" ]]; then
-        # Check for dirty state (equivalent to GIT_PS1_SHOWDIRTYSTATE=1)
-        dirty=""
-        if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-            dirty="*"
-        fi
-        
-        # Check for untracked files (equivalent to GIT_PS1_SHOWUNTRACKEDFILES=1)
-        untracked=""
-        if [[ -n $(git ls-files --others --exclude-standard 2>/dev/null) ]]; then
-            untracked="%"
-        fi
-        
-        # Check upstream status (equivalent to GIT_PS1_SHOWUPSTREAM="auto")
-        upstream=""
-        if git rev-parse '@{upstream}' >/dev/null 2>&1; then
-            ahead=$(git rev-list --count '@{upstream}..HEAD' 2>/dev/null)
-            behind=$(git rev-list --count 'HEAD..@{upstream}' 2>/dev/null)
-            if [[ "$ahead" -gt 0 && "$behind" -gt 0 ]]; then
-                upstream="<>"
-            elif [[ "$ahead" -gt 0 ]]; then
-                upstream=">"
-            elif [[ "$behind" -gt 0 ]]; then
-                upstream="<"
-            fi
-        fi
-        
-        git_status_part="${git_branch}${dirty}${untracked}${upstream}"
-    fi
+if declare -F __git_ps1 >/dev/null; then
+    # Prints nothing at all when outside a work tree.
+    git_status_part=$(__git_ps1 "%s")
+else
+    # git-prompt.sh arrives with the git clone that gitclones.sh makes. Until
+    # that has run, show the branch name alone rather than reintroducing a
+    # second, drift-prone copy of the decoration logic.
+    git_status_part=$(git symbolic-ref --short HEAD 2>/dev/null \
+        || git rev-parse --short HEAD 2>/dev/null)
 fi
 
 # Build the status line with colors (using printf for ANSI codes)
