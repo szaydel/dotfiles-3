@@ -89,6 +89,27 @@ project_empty_mins() {
     fi
 }
 
+# Convert an ISO-8601 UTC timestamp to a Unix epoch. Prints nothing if the
+# string cannot be parsed, so callers fall back to their no-clock rendering.
+#
+# claude-swap reports scoped-window reset times as ISO strings
+# ("2026-08-20T14:00:00.061597+00:00") while the status line JSON's rate_limits
+# already carry epochs. Normalizing here lets the Fable row reuse the same
+# projection math as 5h/7d instead of a second, drifting implementation.
+#
+# The fractional seconds and zone offset are trimmed rather than parsed: every
+# timestamp on this path is UTC, and neither date implementation accepts "%S.%f"
+# portably. BSD date (macOS) needs -j -f; GNU date (Linux) needs -d.
+iso_to_epoch() {
+    local iso=$1
+    [[ -n "$iso" ]] || return
+    local stamp=${iso%%.*}      # drop fractional seconds
+    stamp=${stamp%%+*}          # drop "+00:00" offset
+    stamp=${stamp%Z}            # drop trailing "Z"
+    date -j -u -f "%Y-%m-%dT%H:%M:%S" "$stamp" +%s 2>/dev/null \
+        || date -u -d "${stamp}Z" +%s 2>/dev/null
+}
+
 # Pick ANSI color based on percentage remaining (inverted: high remaining = green)
 rate_limit_color() {
     local pct_left=$1
@@ -277,12 +298,25 @@ render_rate_limit() {
     printf '%s' "${dim}${label} ${ansi_reset}${col}${pct_left}%${ansi_reset}${suffix}"
 }
 
-# Render Fable's per-model weekly usage the same way as 5h/7d, but sourced from
-# claude-swap (which reads /api/oauth/usage) since the statusline JSON does not
-# carry per-model buckets. countdown is the pre-formatted reset string.
+# Render Fable's per-model weekly usage, sourced from claude-swap (which reads
+# /api/oauth/usage) since the statusline JSON does not carry per-model buckets.
+#
+# Delegates to render_rate_limit so the Fable row is formatted, colored, and
+# projected identically to 5h/7d — including the "empty ~Xh Ym" estimate. It
+# only needs its own wrapper because its reset time arrives as an ISO string
+# rather than an epoch; ``countdown`` is claude-swap's pre-formatted reset text,
+# used only when that timestamp is missing or unparseable.
 render_fable_limit() {
     local used_pct=$1
     local countdown=$2
+    local resets_at_iso=$3
+    local resets_at
+    resets_at=$(iso_to_epoch "$resets_at_iso")
+    if [[ -n "$resets_at" ]]; then
+        # Fable's bucket rides the same weekly window as 7d (identical resetsAt).
+        render_rate_limit "Fable" "$used_pct" "$resets_at" 10080
+        return
+    fi
     local pct_left
     pct_left=$(printf '%.0f' "$(echo "100 - $used_pct" | bc)")
     local col
@@ -333,9 +367,10 @@ if [[ -n "$model_is_fable" && -n "$swap_json" ]]; then
     fable_scoped='.accounts[]? | select(.active) | .usage.scoped[]? | select(.name=="Fable")'
     fable_pct=$(echo "$swap_json" | jq -r "$fable_scoped | .pct // empty" 2>/dev/null | head -1)
     fable_reset=$(echo "$swap_json" | jq -r "$fable_scoped | .countdown // empty" 2>/dev/null | head -1)
+    fable_resets_at=$(echo "$swap_json" | jq -r "$fable_scoped | .resetsAt // empty" 2>/dev/null | head -1)
     if [[ -n "$fable_pct" ]]; then
         if [[ -n "$rate_line" ]]; then rate_line="${rate_line}  ${dim}|${ansi_reset}  "; fi
-        rate_line="${rate_line}$(render_fable_limit "$fable_pct" "$fable_reset")"
+        rate_line="${rate_line}$(render_fable_limit "$fable_pct" "$fable_reset" "$fable_resets_at")"
     fi
 fi
 
