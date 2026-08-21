@@ -57,19 +57,21 @@ Fable rule is *not* a copy of the 5-hour rule:
   * Only when Fable is actually the model in use. The hook payload does not
     carry the model, so each invocation reads the tail of its session's
     transcript (``transcript_path``) and stamps ``fable_last_seen_ts`` in the
-    state file when a recent assistant entry was Fable. Any session's stamp
-    counts, for FABLE_ACTIVE_WINDOW_SECONDS -- the accounts are global, and the
-    throttle means the session that happens to win the 60-second race is often
-    not the one running Fable.
+    state file from the latest main-session assistant entry, or from genuinely
+    recent sidechain Fable entries. Any session's stamp counts, for
+    FABLE_ACTIVE_WINDOW_SECONDS -- the accounts are global, and the throttle
+    means the session that happens to win the 60-second race is often not the
+    one running Fable.
 
     A *refused* request counts as use too, and this is not an edge case: when
     the bucket is already empty the request never reaches a model, so the
     transcript gets a ``<synthetic>`` "out of usage credits ... Fable" entry and
     no ``claude-fable-5`` entry at all. A session that starts on Fable while
     walled would otherwise be invisible to the rule that exists for it. That
-    refusal also stamps ``fable_walled_ts``, which forces the away rule
-    regardless of the reported percentage -- it is ground truth from the API,
-    while the percentage comes from a snapshot up to ~3 minutes stale.
+    refusal also stamps ``fable_walled_ts`` with the active account, which
+    forces the away rule only when the primary produced the refusal. It is
+    ground truth from the API, while the percentage comes from a snapshot up to
+    ~3 minutes stale.
 
   * Only when the fallback can actually serve Fable (usageStatus not limiting,
     and its own Fable bucket above FABLE_TARGET_MIN_FREE_PCT). A Fable-spent
@@ -85,9 +87,12 @@ Fable rule is *not* a copy of the 5-hour rule:
   is spent, leave" and we bounce every check. So while Fable is in use we HOLD
   on the fallback whenever the primary's Fable bucket is still spent -- read
   live when the primary's usage is fetchable, otherwise from the
-  ``pending_fable_reset_at`` recorded on the way out. MIN_SWITCH_INTERVAL_SECONDS
-  is a backstop under all of this: no two switches closer together than that
-  (except an outright usageStatus wall, which must not wait).
+  ``pending_fable_reset_at`` recorded on the way out. A Fable-only departure can
+  return after MIN_SWITCH_INTERVAL_SECONDS once Fable is no longer active;
+  otherwise the unrelated 5-hour reset would strand the fallback for hours.
+  MIN_SWITCH_INTERVAL_SECONDS is a backstop under all of this: no two switches
+  closer together than that (except an outright usageStatus wall, which must not
+  wait).
 
   Not handled, because there is nowhere to go: the *fallback* running out of
   Fable while we are on it. With two accounts that is simply the end of Fable
@@ -195,7 +200,8 @@ FABLE_STAMP_MIN_INTERVAL_SECONDS = 30.0
 TRANSCRIPT_TAIL_BYTES = 256 * 1024
 # How many assistant entries back to look for Fable. More than one because the
 # last entry may be a subagent (isSidechain) on a different model than the main
-# session -- if either is Fable, Fable is in use.
+# session. The latest main-session entry decides the current model; sidechain
+# entries count only while they are fresh by their own transcript timestamp.
 TRANSCRIPT_SCAN_ASSISTANT_ENTRIES = 10
 # The model field Claude Code stamps on harness-generated assistant entries
 # (errors, refusals) that never reached a model.
@@ -246,8 +252,9 @@ CLAUDE_SWAP_PATH = str(Path.home() / ".local" / "bin" / "claude-swap")
 # timestamps captured when we switched away -- ``pending_source_reset_at`` (the
 # primary's 5-hour resetsAt) and ``pending_fable_reset_at`` (its Fable weekly
 # resetsAt, only when that bucket was spent) -- used to time the return without
-# re-fetching the primary's usage, plus ``fable_last_seen_ts``, the last time
-# any session was seen running Fable.
+# re-fetching the primary's usage, plus the away reason and Fable stamps. Fable
+# wall stamps include the active account, so a fallback refusal cannot later be
+# mistaken for a primary refusal.
 # Deliberately not in Dropbox -- it is per-machine, ephemeral state.
 STATE_PATH = Path.home() / ".claude" / "auto-swap-state.json"
 # Throttle clock for CHECK_INTERVAL_SECONDS. Deliberately a *separate*, empty
@@ -436,6 +443,7 @@ def write_state(state: dict) -> None:
 def record_switch(
     to_email: str, now: float, away: bool,
     source_reset_at: str | None = None, fable_reset_at: str | None = None,
+    away_reason: str | None = None,
 ) -> None:
     """Persist the most recent switch (audit) and arm/clear the pending resets.
 
@@ -450,6 +458,7 @@ def record_switch(
     for key, value in (
         ("pending_source_reset_at", source_reset_at if away else None),
         ("pending_fable_reset_at", fable_reset_at if away else None),
+        ("pending_away_reason", away_reason if away else None),
     ):
         if value is not None:
             state[key] = value
@@ -459,7 +468,8 @@ def record_switch(
 
 
 def arm_pending_resets(
-    source_reset_at: str | None, fable_reset_at: str | None
+    source_reset_at: str | None, fable_reset_at: str | None,
+    away_reason: str | None = None,
 ) -> None:
     """Persist away-time resets before attempting a possibly slow switch."""
     state = read_state()
@@ -467,6 +477,8 @@ def arm_pending_resets(
         state["pending_source_reset_at"] = source_reset_at
     if fable_reset_at is not None:
         state["pending_fable_reset_at"] = fable_reset_at
+    if away_reason is not None:
+        state["pending_away_reason"] = away_reason
     write_state(state)
 
 
@@ -487,12 +499,23 @@ def get_pending_fable_reset() -> datetime | None:
     return _pending_reset("pending_fable_reset_at")
 
 
+def get_pending_away_reason() -> str | None:
+    """The reason recorded for the current fallback stay, if known."""
+    reason = read_state().get("pending_away_reason")
+    return reason if isinstance(reason, str) else None
+
+
 def clear_pending_resets() -> None:
     """Drop armed pending resets (we are back on / already using the primary)."""
     state = read_state()
-    if state.keys() & {"pending_source_reset_at", "pending_fable_reset_at"}:
+    if state.keys() & {
+        "pending_source_reset_at",
+        "pending_fable_reset_at",
+        "pending_away_reason",
+    }:
         state.pop("pending_source_reset_at", None)
         state.pop("pending_fable_reset_at", None)
+        state.pop("pending_away_reason", None)
         write_state(state)
 
 
@@ -511,11 +534,24 @@ def entry_text(message: dict) -> str:
 
 def entry_age_seconds(entry: dict) -> float | None:
     """Seconds since a transcript entry's ``timestamp``, or None if unusable."""
+    written_ts = entry_timestamp(entry)
+    if written_ts is None:
+        return None
+    return time.time() - written_ts
+
+
+def entry_timestamp(entry: dict) -> float | None:
+    """Unix timestamp for a transcript entry's ``timestamp``, or None."""
     stamp = entry.get("timestamp")
     if not isinstance(stamp, str):
         return None
-    written = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    return (datetime.now(timezone.utc) - written).total_seconds()
+    try:
+        written = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if written.tzinfo is None:
+        written = written.replace(tzinfo=timezone.utc)
+    return written.timestamp()
 
 
 def is_fable_wall_entry(entry: dict, message: dict) -> bool:
@@ -534,21 +570,22 @@ def is_fable_wall_entry(entry: dict, message: dict) -> bool:
     return "fable" in text and any(m in text for m in FABLE_WALL_MARKERS)
 
 
-def transcript_fable_signals(transcript_path: str) -> tuple[bool, bool]:
-    """(Fable in use, Fable walled right now) from a session's transcript tail.
+def transcript_fable_signals(transcript_path: str) -> tuple[float | None, float | None]:
+    """(Fable use timestamp, Fable wall timestamp) from a transcript tail.
 
     Reads only the tail of the JSONL and walks it backwards over the last
-    TRANSCRIPT_SCAN_ASSISTANT_ENTRIES assistant entries. Looks at several rather
-    than only the last because the newest entry may belong to a subagent
-    (isSidechain) running a different model than the session itself.
+    TRANSCRIPT_SCAN_ASSISTANT_ENTRIES assistant entries. The newest main-session
+    entry decides the current session model. Sidechain entries can still arm the
+    rule, but only if their own timestamp is recent, so an old Fable subagent
+    cannot survive a later /model change.
 
     Two signals, because a successful Fable turn is not the only evidence:
 
-      * in use -- a recent assistant entry whose model is Fable, OR a wall
-        notice naming Fable. The wall notice matters on its own: a session that
-        starts on Fable and is refused on its very first request never writes a
-        ``claude-fable-5`` entry at all, so model-only detection would never
-        arm the rules for the exact case they exist for.
+      * in use -- the latest main-session assistant entry is Fable, a recent
+        sidechain assistant entry is Fable, or there is a recent wall notice
+        naming Fable. The wall notice matters on its own: a session that starts
+        on Fable and is refused on its very first request never writes a
+        ``claude-fable-5`` entry at all.
 
       * walled -- that same notice, and *recent* by the entry's own timestamp.
         Transcripts are append-only and are re-read from the tail every time, so
@@ -565,9 +602,11 @@ def transcript_fable_signals(transcript_path: str) -> tuple[bool, bool]:
             fh.seek(max(0, size - TRANSCRIPT_TAIL_BYTES))
             tail = fh.read()
     except (FileNotFoundError, IsADirectoryError, PermissionError):
-        return False, False
+        return None, None
     lines = tail.decode("utf-8", "replace").splitlines()
-    in_use = walled = False
+    fable_seen_ts = None
+    fable_wall_ts = None
+    latest_main_seen = False
     seen = 0
     for line in reversed(lines):
         if seen >= TRANSCRIPT_SCAN_ASSISTANT_ENTRIES:
@@ -585,17 +624,29 @@ def transcript_fable_signals(transcript_path: str) -> tuple[bool, bool]:
         if not isinstance(message, dict):
             continue
         model = message.get("model")
-        if isinstance(model, str) and "fable" in model.lower():
-            in_use = True
-        elif is_fable_wall_entry(entry, message):
-            in_use = True
-            age = entry_age_seconds(entry)
-            if age is not None and age <= FABLE_WALL_RECENT_SECONDS:
-                walled = True
-    return in_use, walled
+        ts = entry_timestamp(entry)
+        age = None if ts is None else time.time() - ts
+        is_sidechain = bool(entry.get("isSidechain"))
+        if not is_sidechain and not latest_main_seen:
+            latest_main_seen = True
+            if isinstance(model, str) and "fable" in model.lower():
+                fable_seen_ts = ts
+        elif (
+            is_sidechain
+            and isinstance(model, str)
+            and "fable" in model.lower()
+            and age is not None
+            and age <= FABLE_ACTIVE_WINDOW_SECONDS
+        ):
+            fable_seen_ts = max(fable_seen_ts or ts, ts)
+        if is_fable_wall_entry(entry, message) and age is not None:
+            if age <= FABLE_WALL_RECENT_SECONDS:
+                fable_wall_ts = max(fable_wall_ts or ts, ts)
+                fable_seen_ts = max(fable_seen_ts or ts, ts)
+    return fable_seen_ts, fable_wall_ts
 
 
-def stamp_fable_use(payload: dict, now: float) -> None:
+def stamp_fable_use(payload: dict, wall_account: str | None = None) -> None:
     """Record Fable use (and any live Fable wall) for the Fable rules to see.
 
     Runs on *every* invocation, before the throttle, because the session that
@@ -608,21 +659,30 @@ def stamp_fable_use(payload: dict, now: float) -> None:
     transcript = payload.get("transcript_path")
     if not isinstance(transcript, str) or not transcript:
         return
-    in_use, walled = transcript_fable_signals(transcript)
+    fable_seen_ts, fable_wall_ts = transcript_fable_signals(transcript)
     updates = {}
-    if in_use:
-        updates["fable_last_seen_ts"] = now
-    if walled:
-        updates["fable_walled_ts"] = now
+    if fable_seen_ts is not None:
+        updates["fable_last_seen_ts"] = fable_seen_ts
+    if fable_wall_ts is not None and wall_account is not None:
+        updates["fable_walled_ts"] = fable_wall_ts
+        updates["fable_walled_account"] = wall_account
     if not updates:
         return
     state = read_state()
-    if all(
-        isinstance(state.get(key), (int, float))
-        and now - state[key] < FABLE_STAMP_MIN_INTERVAL_SECONDS
-        for key in updates
+    numeric_keys = [
+        key for key in updates
+        if isinstance(updates[key], (int, float))
+    ]
+    if (
+        numeric_keys
+        and all(
+            isinstance(state.get(key), (int, float))
+            and abs(updates[key] - state[key]) < FABLE_STAMP_MIN_INTERVAL_SECONDS
+            for key in numeric_keys
+        )
+        and all(state.get(key) == updates[key] for key in updates if key not in numeric_keys)
     ):
-        return  # already stamped moments ago; skip the write
+        return  # already stamped this transcript moment; skip the write
     state.update(updates)
     write_state(state)
 
@@ -637,14 +697,20 @@ def fable_recently_active(now: float) -> bool:
     return _stamp_fresh("fable_last_seen_ts", now, FABLE_ACTIVE_WINDOW_SECONDS)
 
 
-def fable_recently_walled(now: float) -> bool:
+def fable_recently_walled(now: float, account_email: str | None = None) -> bool:
     """True if a session was refused for Fable credits within the wall window.
 
     Ground truth, and it outranks the usage snapshot: claude-swap serves usage
     from a store with a 180s freshness floor, so the reported Fable percentage
     can still read healthy for minutes after the API has started refusing.
     """
-    return _stamp_fresh("fable_walled_ts", now, FABLE_WALL_RECENT_SECONDS)
+    state = read_state()
+    last = state.get("fable_walled_ts")
+    if not isinstance(last, (int, float)) or now - last >= FABLE_WALL_RECENT_SECONDS:
+        return False
+    if account_email is None:
+        return True
+    return state.get("fable_walled_account") == account_email
 
 
 def log(line: str) -> None:
@@ -694,6 +760,7 @@ def switch_too_soon(now: float) -> float | None:
 def do_switch(
     swap: str, to_email: str, now: float, success_msg: str,
     source_reset_at: str | None = None, fable_reset_at: str | None = None,
+    away_reason: str | None = None,
     urgent: bool = False,
 ) -> str:
     """Run claude-swap --switch-to; record + notify on success, notify on fail.
@@ -715,7 +782,7 @@ def do_switch(
             return f" [held {wait:.0f}s by min switch interval]"
     away = to_email == TARGET_EMAIL
     if away:
-        arm_pending_resets(source_reset_at, fable_reset_at)
+        arm_pending_resets(source_reset_at, fable_reset_at, away_reason)
     try:
         sw = subprocess.run(
             [swap, "--switch-to", to_email], capture_output=True, text=True,
@@ -731,6 +798,7 @@ def do_switch(
         record_switch(
             to_email, now, away,
             source_reset_at=source_reset_at, fable_reset_at=fable_reset_at,
+            away_reason=away_reason,
         )
         notify(success_msg)
         return ""
@@ -820,10 +888,13 @@ def handle_source_active(
     ):
         fable_reset_at = fable_window["resetsAt"]
 
-    def leave(reason_msg: str, label: str, urgent: bool = False) -> str:
+    def leave(
+        reason_msg: str, label: str, away_reason: str, urgent: bool = False
+    ) -> str:
         note = do_switch(
             swap, TARGET_EMAIL, now, reason_msg,
             source_reset_at=reset_at, fable_reset_at=fable_reset_at,
+            away_reason=away_reason,
             urgent=urgent,
         )
         return f"AWAY->{TARGET_NAME} ({label}){note}"
@@ -832,7 +903,7 @@ def handle_source_active(
         return leave(
             f"{SOURCE_EMAIL} usageStatus={status} (walled) "
             f"-- switched to {TARGET_EMAIL}.",
-            f"usageStatus={status}", urgent=True,
+            f"usageStatus={status}", "status", urgent=True,
         )
     # Floor first: it is the signal that survives a burst the window-average
     # projection cannot see, and it fires even when the projection is None
@@ -842,7 +913,7 @@ def handle_source_active(
         return leave(
             f"{SOURCE_EMAIL} 5-hour budget down to {free:.0f}% free "
             f"-- switched to {TARGET_EMAIL}.",
-            f"5h at {free:.0f}% free",
+            f"5h at {free:.0f}% free", "five_hour",
         )
 
     proj = project_empty_minutes(usage, "fiveHour", FIVE_HOUR_WINDOW_MINS)
@@ -850,7 +921,7 @@ def handle_source_active(
         return leave(
             f"{SOURCE_EMAIL} 5-hour budget ~{proj:.1f}m from empty at current "
             f"burn -- switched to {TARGET_EMAIL}.",
-            f"5h empties in ~{proj:.1f}m",
+            f"5h empties in ~{proj:.1f}m", "five_hour",
         )
 
     # The 5-hour window is fine. Fable draws on its own weekly bucket, so it can
@@ -863,6 +934,7 @@ def handle_source_active(
                 f"{SOURCE_EMAIL} Fable weekly budget {fable_detail} "
                 f"-- switched to {TARGET_EMAIL}.",
                 f"Fable {fable_detail}",
+                "fable",
                 # A live refusal means turns are failing right now, so this is
                 # as urgent as a usageStatus wall -- don't sit out the backstop.
                 urgent=fable_walled,
@@ -917,7 +989,14 @@ def handle_target_active(
     # we recorded when switching away. Works even when the primary's usage reads
     # "unavailable" as the inactive account.
     pending = get_pending_reset()
+    away_reason = get_pending_away_reason()
     reason = None
+    if away_reason == "fable" and not fable_active:
+        wait = switch_too_soon(now)
+        if wait is None:
+            reason = "Fable no longer active after min switch interval"
+        elif pending is None:
+            return f"stay-on-{TARGET_NAME} (Fable inactive; min interval {wait:.0f}s)"
     if pending is not None and now_dt >= pending:
         reason = f"past recorded 5h reset {pending:%H:%M}Z"
 
@@ -1019,9 +1098,10 @@ def evaluate(payload: dict, now: float) -> int:
     # Stamp Fable usage *before* the throttle: this is the only place a session's
     # model is visible, and the session that evaluates is usually not the one
     # running Fable. Cheap (a transcript tail read, and at most one state write
-    # per FABLE_STAMP_MIN_INTERVAL_SECONDS).
+    # per FABLE_STAMP_MIN_INTERVAL_SECONDS). Wall stamps are account-scoped below
+    # once the active account is known.
     if enabled:
-        stamp_fable_use(payload, now)
+        stamp_fable_use(payload)
     # Throttle before anything else, including the log: at PostToolUse cadence
     # the un-throttled path would run per tool call and bury the audit log.
     if throttled(now):
@@ -1065,9 +1145,11 @@ def evaluate(payload: dict, now: float) -> int:
         log(f"{snap} :: skip (no active account)")
         return 0  # can't tell which account is active; nothing to do
 
-    fable_walled = fable_recently_walled(now)
-    fable_active = fable_recently_active(now) or fable_walled
-    if active.get("email") == SOURCE_EMAIL:
+    active_email = active.get("email")
+    stamp_fable_use(payload, active_email if isinstance(active_email, str) else None)
+    fable_walled = fable_recently_walled(now, SOURCE_EMAIL)
+    fable_active = fable_recently_active(now) or fable_recently_walled(now)
+    if active_email == SOURCE_EMAIL:
         # We are on the primary: any armed "return at reset" is moot. Clear it so
         # a stale value can't drive an unwanted return after a manual switch.
         clear_pending_resets()
@@ -1078,13 +1160,13 @@ def evaluate(payload: dict, now: float) -> int:
             swap, active.get("usage") or {}, active.get("usageStatus"), now,
             fable_active, fable_walled, target,
         )
-    elif active.get("email") == TARGET_EMAIL:
+    elif active_email == TARGET_EMAIL:
         source = next(
             (a for a in accounts if a.get("email") == SOURCE_EMAIL), None
         )
         decision = handle_target_active(swap, source, now, fable_active)
     else:
-        decision = f"other account active ({active.get('email')})"
+        decision = f"other account active ({active_email})"
     mark = "fable-walled " if fable_walled else "fable " if fable_active else ""
     log(f"{snap} :: {mark}{decision}")
     return 0
