@@ -604,6 +604,7 @@ def transcript_fable_signals(transcript_path: str) -> tuple[float | None, float 
     except (FileNotFoundError, IsADirectoryError, PermissionError):
         return None, None
     lines = tail.decode("utf-8", "replace").splitlines()
+    now = time.time()
     fable_seen_ts = None
     fable_wall_ts = None
     latest_main_seen = False
@@ -625,12 +626,12 @@ def transcript_fable_signals(transcript_path: str) -> tuple[float | None, float 
             continue
         model = message.get("model")
         ts = entry_timestamp(entry)
-        age = None if ts is None else time.time() - ts
+        age = None if ts is None else now - ts
         is_sidechain = bool(entry.get("isSidechain"))
         if not is_sidechain and not latest_main_seen:
             latest_main_seen = True
             if isinstance(model, str) and "fable" in model.lower():
-                fable_seen_ts = ts
+                fable_seen_ts = now
         elif (
             is_sidechain
             and isinstance(model, str)
@@ -660,15 +661,19 @@ def stamp_fable_use(payload: dict, wall_account: str | None = None) -> None:
     if not isinstance(transcript, str) or not transcript:
         return
     fable_seen_ts, fable_wall_ts = transcript_fable_signals(transcript)
+    state = read_state()
     updates = {}
     if fable_seen_ts is not None:
-        updates["fable_last_seen_ts"] = fable_seen_ts
+        stored_seen_ts = state.get("fable_last_seen_ts")
+        if not isinstance(stored_seen_ts, (int, float)) or fable_seen_ts > stored_seen_ts:
+            updates["fable_last_seen_ts"] = fable_seen_ts
     if fable_wall_ts is not None and wall_account is not None:
-        updates["fable_walled_ts"] = fable_wall_ts
-        updates["fable_walled_account"] = wall_account
+        stored_wall_ts = state.get("fable_walled_ts")
+        if not isinstance(stored_wall_ts, (int, float)) or fable_wall_ts > stored_wall_ts:
+            updates["fable_walled_ts"] = fable_wall_ts
+            updates["fable_walled_account"] = wall_account
     if not updates:
         return
-    state = read_state()
     numeric_keys = [
         key for key in updates
         if isinstance(updates[key], (int, float))
