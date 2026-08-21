@@ -244,5 +244,8 @@
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "spellcheck": {
+    "enabled": true
+  }
 }
