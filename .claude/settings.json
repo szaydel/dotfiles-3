@@ -45,6 +45,14 @@
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/claude-notify.py Notification"
+          }
+        ]
       }
     ],
     "PermissionRequest": [
@@ -107,6 +115,15 @@
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/claude-notify.py PreToolUse"
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -115,6 +132,14 @@
           {
             "type": "command",
             "command": "/Users/aaronmeurer/.config/iterm2/cc-status"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/claude-notify.py SessionEnd"
           }
         ]
       }
@@ -151,6 +176,14 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/claude-notify.py Stop"
           }
         ]
       }
@@ -217,6 +250,14 @@
             "command": "python3 ~/.claude/hooks/auto-swap-on-low-usage.py"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/claude-notify.py UserPromptSubmit"
+          }
+        ]
       }
     ]
   },
@@ -226,7 +267,19 @@
     "refreshInterval": 5
   },
   "enabledPlugins": {
-    "swift-lsp@claude-plugins-official": true
+    "swift-lsp@claude-plugins-official": true,
+    "claude-notifications-go@claude-notifications-go": false
+  },
+  "extraKnownMarketplaces": {
+    "claude-notifications-go": {
+      "source": {
+        "source": "github",
+        "repo": "777genius/claude-notifications-go"
+      }
+    }
+  },
+  "spellcheck": {
+    "enabled": true
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
@@ -240,12 +293,9 @@
   "theme": "auto",
   "editorMode": "normal",
   "verbose": true,
-  "preferredNotifChannel": "auto",
+  "preferredNotifChannel": "notifications_disabled",
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true,
-  "spellcheck": {
-    "enabled": true
-  }
+  "voiceEnabled": true
 }
