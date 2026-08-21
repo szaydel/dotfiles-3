@@ -190,10 +190,10 @@ aliases['ls'] = 'ls -AG@Flha'
 aliases[' l'] = 'ls -AG@Flha'
 aliases['grep'] = 'grep -i --color=always'
 aliases['mkdir'] = 'mkdir -p'
-aliases['cdsympy'] = 'cd ~/Documents/python/sympy/sympy'
-aliases['cds'] = 'cd ~/Documents/python/sympy/sympy'
-aliases['cdss'] = 'cd ~/Documents/python/sympy/sympy-scratch'
-aliases['cdsss'] = 'cd ~/Documents/python/sympy/sympy-scratch2'
+aliases['cdsympy'] = 'cd ~/Documents/Python/sympy/sympy'
+aliases['cds'] = 'cd ~/Documents/Python/sympy/sympy'
+aliases['cdss'] = 'cd ~/Documents/Python/sympy/sympy-scratch'
+aliases['cdsss'] = 'cd ~/Documents/Python/sympy/sympy-scratch2'
 $EMACSCLIENT = "emacsclient -a 'emacs-server-start' -nw --socket-name=$TTY"
 aliases['emacsclient'] = $EMACSCLIENT
 aliases['e'] = $EMACSCLIENT
