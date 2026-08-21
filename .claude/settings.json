@@ -220,9 +220,6 @@
       }
     ]
   },
-  "worktree": {
-    "baseRef": "fresh"
-  },
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline-freeze.sh bash ~/.claude/statusline-command.sh",
@@ -247,33 +244,5 @@
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "autoMode": {
-    "environment": [
-      "### Org-wide",
-      "**Organization**: None configured — this repo (sympy/sympy) is a public open-source project, not an org-internal codebase",
-      "**Cloud provider(s)**: None configured",
-      "**Repository visibility**: PUBLIC — github.com/sympy/sympy (gh visibility check was not queryable, but repo name/remotes and README badges confirm this is the public open-source SymPy project)",
-      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary (gist.github.com was contacted 11× in this project's transcripts; still not a trusted internal destination for sensitive data)",
-      "**Secrets management**: None configured",
-      "**Default / protected branches**: Default branch `master`; protected branches `1.14`, `master` (via gh)",
-      "**CI/CD deploy targets**: None configured",
-      "**Network posture**: None configured",
-      "**Source control**: The trusted repo (sympy/sympy, this checkout) and its configured remotes only — public repo, no additional orgs configured",
-      "**Trusted internal domains**: None configured",
-      "**Trusted cloud buckets**: None configured",
-      "**Key internal services**: None configured",
-      "**Internal package registry**: None configured",
-      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar. CI secret names referenced (values not seen, names only): ANACONDA_ORG_UPLOAD_TOKEN, CIRCLECI_TOKEN, DEPLOY_KEY, SYMPY_DOC_RELEASE_PUSH_TOKEN",
-      "**Data retention / declassification**: None configured",
-      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment",
-      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
-      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
-      "### User-specific",
-      "**Primary use of Claude Code**: software development (SymPy, a public open-source symbolic math library) — this project only",
-      "**Trusted repo**: /Users/aaronmeurer/Documents/Python/sympy/sympy (github.com/sympy/sympy) and its configured remotes — a PUBLIC repo, so only this repo's own work belongs there; secrets and sensitive data are never cleared into it regardless of visibility. Note: many personal fork remotes are also configured (e.g. ABKor752, ALGHeArT, AadityaNair, and dozens more third-party fork remotes) — these are other contributors' forks, not trusted push targets by default",
-      "**Org-specific CLIs**: None configured",
-      "routine under repo-local paths (e.g. `sympy/`, `doc/`, this checkout's Makefile targets like `html`, `htmlapi`, `linkcheck`) is standard project work"
-    ]
-  },
   "voiceEnabled": true
 }
