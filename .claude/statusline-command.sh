@@ -110,6 +110,30 @@ iso_to_epoch() {
         || date -u -d "${stamp}Z" +%s 2>/dev/null
 }
 
+auto_swap_state_json=""
+read_auto_swap_state() {
+    local state_path="$HOME/.claude/auto-swap-state.json"
+    if [[ -z "$auto_swap_state_json" && -r "$state_path" ]]; then
+        auto_swap_state_json=$(jq -c . "$state_path" 2>/dev/null || true)
+    fi
+}
+
+auto_swap_fable_recently_active() {
+    read_auto_swap_state
+    [[ -n "$auto_swap_state_json" ]] || return 1
+    local now last_seen last_walled
+    now=$(date +%s)
+    last_seen=$(echo "$auto_swap_state_json" | jq -r '.fable_last_seen_ts // empty' 2>/dev/null)
+    last_walled=$(echo "$auto_swap_state_json" | jq -r '.fable_walled_ts // empty' 2>/dev/null)
+    if [[ -n "$last_seen" ]] && [[ "$(echo "$now - $last_seen < 900" | bc -l 2>/dev/null)" == "1" ]]; then
+        return 0
+    fi
+    if [[ -n "$last_walled" ]] && [[ "$(echo "$now - $last_walled < 600" | bc -l 2>/dev/null)" == "1" ]]; then
+        return 0
+    fi
+    return 1
+}
+
 # Pick ANSI color based on percentage remaining (inverted: high remaining = green)
 rate_limit_color() {
     local pct_left=$1
@@ -375,22 +399,30 @@ if [[ -n "$model_is_fable" && -n "$swap_json" ]]; then
 fi
 
 # Alternate-account note: while on the auto-swap fallback account, show when
-# the primary has 5-hour headroom again — the cue that a switch back is
+# the primary has 5-hour headroom again -- the cue that a switch back is
 # possible. Mirrors auto-swap-on-low-usage.py's gating: primary usageStatus
 # "ok", 5-hour window meaningfully recovered (>=10% free), weekly cap not
-# walled (>5% free; missing weekly data counts as ok), and — when Fable is the
-# active model — the primary's Fable weekly bucket not spent (>5% free), since
-# the hook deliberately holds on the fallback in that case.
+# walled (>5% free; missing weekly data counts as ok), and -- when the hook's
+# shared state says Fable is active in any session -- the primary's Fable weekly
+# bucket not spent (>5% free, or no pending Fable reset when live usage is
+# unavailable), since the hook deliberately holds on the fallback in that case.
 if [[ "$account_email" == "$alt_fallback_email" && -n "$swap_json" ]]; then
     alt_primary='.accounts[]? | select(.email=="'"$alt_primary_email"'")'
     alt_status=$(echo "$swap_json" | jq -r "$alt_primary | .usageStatus // empty" 2>/dev/null | head -1)
     alt_5h_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.fiveHour.pct // empty" 2>/dev/null | head -1)
     alt_7d_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.sevenDay.pct // empty" 2>/dev/null | head -1)
     alt_fable_held=""
-    if [[ -n "$model_is_fable" ]]; then
+    if auto_swap_fable_recently_active; then
         alt_fable_pct=$(echo "$swap_json" | jq -r "$alt_primary | .usage.scoped[]? | select(.name==\"Fable\") | .pct // empty" 2>/dev/null | head -1)
         if [[ -n "$alt_fable_pct" ]] && [[ "$(echo "100 - $alt_fable_pct <= 5" | bc -l 2>/dev/null)" == "1" ]]; then
             alt_fable_held="1"
+        elif [[ -z "$alt_fable_pct" ]]; then
+            read_auto_swap_state
+            pending_fable_reset=$(echo "$auto_swap_state_json" | jq -r '.pending_fable_reset_at // empty' 2>/dev/null)
+            pending_fable_reset_epoch=$(iso_to_epoch "$pending_fable_reset")
+            if [[ -n "$pending_fable_reset_epoch" && "$pending_fable_reset_epoch" -gt "$(date +%s)" ]]; then
+                alt_fable_held="1"
+            fi
         fi
     fi
     if [[ -n "$alt_fable_held" ]]; then
