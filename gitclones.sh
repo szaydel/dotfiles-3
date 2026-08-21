@@ -237,6 +237,22 @@ else
     rm -rf "$SCOWL_TMP"
 fi
 
+# Expose the SCOWL dictionary to programs that can only pass hunspell a plain
+# dictionary *name* rather than an absolute -d path (Claude Code's spellcheck
+# setting, which uses "language": "en_US-large"). The conda hunspell build
+# ignores DICPATH, but ~/Library/Spelling is in its built-in search path on
+# macOS, so symlink the dictionary there under a distinct name (plain "en_US"
+# would be shadowed by conda's own dictionary, which appears earlier in the
+# search path). The ~/.hunspell_en_US-large symlink makes hunspell's automatic
+# personal word list for the "en_US-large" basename resolve to the shared
+# ~/.hunspell_en_US from this repo.
+if [[ "$(uname)" == "Darwin" ]]; then
+    mkdir -p "$HOME/Library/Spelling"
+    ln -sf ../../.local/share/hunspell/en_US.aff "$HOME/Library/Spelling/en_US-large.aff"
+    ln -sf ../../.local/share/hunspell/en_US.dic "$HOME/Library/Spelling/en_US-large.dic"
+fi
+ln -sf .hunspell_en_US "$HOME/.hunspell_en_US-large"
+
 # ==== Summary ====
 
 if (( ${#FAILURES[@]} )); then

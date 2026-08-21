@@ -279,7 +279,9 @@
     }
   },
   "spellcheck": {
-    "enabled": true
+    "enabled": true,
+    "checker": "hunspell",
+    "language": "en_US-large"
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
