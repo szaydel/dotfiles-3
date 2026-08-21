@@ -185,6 +185,7 @@ UV_TOOLS=(
     pyflakes              # .emacs flycheck runs the bare pyflakes executable
     pyinstrument
     jedi-language-server
+    basedpyright
     xonsh
     llm
     glances
