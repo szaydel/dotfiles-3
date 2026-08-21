@@ -11,12 +11,8 @@ The principle files here are:
 
 # Code Style Guidelines
 - **Python**:
-  - 4-space indentation, PEP-8 compliant
   - Absolute paths preferred over relative paths
   - Never silence exceptions (prefer full tracebacks)
-  - Use descriptive variable names
-  - Snake_case for function names and variables
-  - Document functions with docstrings
 
 - **Shell Scripts**:
   - Use `set -e` to exit on errors
@@ -26,10 +22,6 @@ The principle files here are:
     includes using $HOME or ~ to reference the home directory, which is
     different on the different platforms. If something can only work on one
     platform, it should use a conditional so it isn't run on the other.
-
-- **Security**:
-  - Store API keys/tokens securely
-  - Never hardcode sensitive information
 
 - **Git Workflow**:
   - Small, focused commits with descriptive messages
